@@ -1,0 +1,4010 @@
+--- a/gui/src/qmlbackend.cpp
++++ b/gui/src/qmlbackend.cpp
+@@ -625,6 +625,16 @@
+ 
+ void QmlBackend::profileChanged()
+ {
++    // Profiles isolate authentication and registered hosts. Do not let a pending
++    // PSN discovery operation write results from the previous account into the
++    // next account's host list, or retain cached hosts across account switches.
++    if(updating_psn_hosts)
++    {
++        psn_hosts_future.waitForFinished();
++        updating_psn_hosts = false;
++    }
++    psn_hosts.clear();
++    psn_nickname_hosts.clear();
+     QString profile = settings->GetCurrentProfile();
+     Settings *settings_copy = new Settings(profile);
+     if(settings_allocd)
+--- a/gui/src/qml/ManualHostDialog.qml
++++ b/gui/src/qml/ManualHostDialog.qml
+@@ -8,8 +8,8 @@
+ import "controls" as C
+ 
+ DialogView {
+-    title: qsTr("Add Manual Console")
+-    buttonText: qsTr("Add")
++    title: qsTr("ゲーム機を手動追加")
++    buttonText: qsTr("追加")
+     buttonEnabled: hostField.text.trim() && (consoleCombo.model[consoleCombo.currentIndex].index != -1)
+     onAccepted: {
+         Chiaki.addManualHost(consoleCombo.model[consoleCombo.currentIndex].index, hostField.text.trim());
+@@ -29,7 +29,7 @@
+ 
+             Label {
+                 Layout.alignment: Qt.AlignRight
+-                text: qsTr("Host:")
++                text: qsTr("ホスト：")
+             }
+ 
+             C.TextField {
+@@ -41,7 +41,7 @@
+ 
+             Label {
+                 Layout.alignment: Qt.AlignRight
+-                text: qsTr("Registered Consoles:")
++                text: qsTr("登録済みゲーム機：")
+             }
+ 
+             C.ComboBox {
+@@ -54,7 +54,7 @@
+                     if(Chiaki.settings.registeredHosts.length > 0)
+                     {
+                         m.push({
+-                            name: qsTr("Select an Option"),
++                            name: qsTr("項目を選択"),
+                             index: -1,
+                         });
+                     }
+@@ -67,7 +67,7 @@
+                         });
+                     }
+                     m.push({
+-                        name: qsTr("Register on first Connection"),
++                        name: qsTr("初回接続時に登録"),
+                         index: i,
+                     });
+                     return m;
+--- a/gui/src/qml/PlaceboSettingsDialog.qml
++++ b/gui/src/qml/PlaceboSettingsDialog.qml
+@@ -12,8 +12,8 @@
+ DialogView {
+     id: dialog
+     property string options_url: ""
+-    title: qsTr("Placebo Renderer Settings")
+-    header: qsTr("* Defaults in () to right of value or marked with (Default)")
++    title: qsTr("レンダラー設定")
++    header: qsTr("括弧内の値、または「標準」は初期値を表します")
+     buttonVisible: false
+     Keys.onPressed: (event) => {
+         if (event.modifiers)
+@@ -41,42 +41,42 @@
+             }
+ 
+             TabButton {
+-                text: qsTr("Config")
++                text: qsTr("設定")
+                 focusPolicy: Qt.NoFocus
+             }
+ 
+             TabButton {
+-                text: qsTr("Scaling")
++                text: qsTr("拡大縮小")
+                 focusPolicy: Qt.NoFocus
+             }
+ 
+             TabButton {
+-                text: qsTr("Deinterlace")
++                text: qsTr("インターレース解除")
+                 focusPolicy: Qt.NoFocus
+             }
+ 
+             TabButton {
+-                text: qsTr("Debanding")
++                text: qsTr("バンディング除去")
+                 focusPolicy: Qt.NoFocus
+             }
+ 
+             TabButton {
+-                text: qsTr("Sigmoidization")
++                text: qsTr("シグモイド変換")
+                 focusPolicy: Qt.NoFocus
+             }
+ 
+             TabButton {
+-                text: qsTr("Color")
++                text: qsTr("色")
+                 focusPolicy: Qt.NoFocus
+             }
+ 
+             TabButton {
+-                text: qsTr("Peak Detection")
++                text: qsTr("ピーク検出")
+                 focusPolicy: Qt.NoFocus
+             }
+ 
+             TabButton {
+-                text: qsTr("Color Mapping")
++                text: qsTr("カラーマッピング")
+                 focusPolicy: Qt.NoFocus
+             }
+         }
+@@ -104,13 +104,13 @@
+                     columnSpacing: 20
+ 
+                     Label {
+-                        text: qsTr("Libplacebo Renderer Options Details")
++                        text: qsTr("libplaceboレンダラーの詳細設定")
+                         visible: !options_url
+                     }
+ 
+                     C.Button {
+                         id: openwebpage
+-                        text: qsTr("Open Documentation")
++                        text: qsTr("説明書を開く")
+                         onClicked: {
+                             options_url = Chiaki.openPlaceboOptionsLink()
+                         }
+@@ -118,7 +118,7 @@
+                     }
+ 
+                     Label {
+-                        text: qsTr("Open Documentation in Web Browser with copied URL")
++                        text: qsTr("コピーしたURLをブラウザで開く")
+                         visible: options_url
+                     }
+ 
+@@ -132,7 +132,7 @@
+ 
+                     C.Button {
+                         id: copyUrl
+-                        text: qsTr("Click to Re-Copy URL")
++                        text: qsTr("URLを再コピー")
+                         onClicked: {
+                             openurl.selectAll()
+                             openurl.copy()
+@@ -141,12 +141,12 @@
+                     }
+ 
+                     Label {
+-                        text: qsTr("Export Render Settings to File")
++                        text: qsTr("描画設定をファイルに書き出す")
+                     }
+ 
+                     C.Button {
+                         id: exportButton
+-                        text: qsTr("Export")
++                        text: qsTr("エクスポート")
+                         onClicked: {
+                             Chiaki.settings.exportPlaceboSettings();
+                         }
+@@ -156,13 +156,13 @@
+                     }
+ 
+                     Label {
+-                        text: qsTr("Import Render Settings from File")
++                        text: qsTr("描画設定をファイルから読み込む")
+                     }
+ 
+                     C.Button {
+                         id: importButton
+                         lastInFocusChain: true
+-                        text: qsTr("Import")
++                        text: qsTr("インポート")
+                         onClicked: {
+                             Chiaki.settings.importPlaceboSettings();
+                         }
+@@ -187,13 +187,13 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Upscaler:")
++                        text: qsTr("拡大方式：")
+                     }
+ 
+                     C.ComboBox {
+                         Layout.preferredWidth: 400
+                         firstInFocusChain: true
+-                        model: [qsTr("Custom"), qsTr("Nearest"), qsTr("Bilinear"), qsTr("Oversample"), qsTr("Bicubic"), qsTr("Gaussian"), qsTr("Catmull Rom"), qsTr("Lanczos"), qsTr("EwaLanczos"), qsTr("EwaLanczosSharp"), qsTr("EwaLanczosSharpest"), qsTr("FSR"), qsTr("FSRCNNX x2 8-0-4-1"), qsTr("FSRCNNX x2 16-0-4-1")]
++                        model: [qsTr("カスタム"), qsTr("最近傍"), qsTr("バイリニア"), qsTr("オーバーサンプリング"), qsTr("バイキュービック"), qsTr("ガウス"), qsTr("Catmull Rom"), qsTr("Lanczos"), qsTr("EwaLanczos"), qsTr("EwaLanczosSharp"), qsTr("EwaLanczosSharpest"), qsTr("FSR"), qsTr("FSRCNNX x2 8-0-4-1"), qsTr("FSRCNNX x2 16-0-4-1")]
+                         currentIndex: Chiaki.settings.placeboUpscaler
+                         onActivated: index => Chiaki.settings.placeboUpscaler = index
+                     }
+@@ -205,31 +205,31 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Plane Upscaler:")
++                        text: qsTr("プレーン拡大方式：")
+                     }
+ 
+                     C.ComboBox {
+                         Layout.preferredWidth: 400
+                         firstInFocusChain: true
+-                        model: [qsTr("Chosen Upscaler"), qsTr("Nearest"), qsTr("Bilinear"), qsTr("Oversample"), qsTr("Bicubic"), qsTr("Gaussian"), qsTr("Catmull Rom"), qsTr("Lanczos"), qsTr("EwaLanczos"), qsTr("EwaLanczosSharp"), qsTr("EwaLanczosSharpest")]
++                        model: [qsTr("選択中の拡大方式"), qsTr("最近傍"), qsTr("バイリニア"), qsTr("オーバーサンプリング"), qsTr("バイキュービック"), qsTr("ガウス"), qsTr("Catmull Rom"), qsTr("Lanczos"), qsTr("EwaLanczos"), qsTr("EwaLanczosSharp"), qsTr("EwaLanczosSharpest")]
+                         currentIndex: Chiaki.settings.placeboPlaneUpscaler
+                         onActivated: index => Chiaki.settings.placeboPlaneUpscaler = index
+                     }
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Chosen Upscaler)")
+-                    }
+-
+-                    Label {
+-                        Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Downscaler:")
++                        text: qsTr("（選択中の拡大方式）")
++                    }
++
++                    Label {
++                        Layout.alignment: Qt.AlignRight
++                        text: qsTr("縮小方式：")
+                     }
+ 
+                     C.ComboBox {
+                         Layout.preferredWidth: 400
+                         firstInFocusChain: true
+-                        model: [qsTr("Custom"), qsTr("Box"), qsTr("Hermite"), qsTr("Bilinear"), qsTr("Bicubic"), qsTr("Gaussian"), qsTr("Catmull Rom"), qsTr("Mitchell"), qsTr("Lanczos")]
++                        model: [qsTr("カスタム"), qsTr("ボックス"), qsTr("Hermite"), qsTr("バイリニア"), qsTr("バイキュービック"), qsTr("ガウス"), qsTr("Catmull Rom"), qsTr("Mitchell"), qsTr("Lanczos")]
+                         currentIndex: Chiaki.settings.placeboDownscaler
+                         onActivated: index => Chiaki.settings.placeboDownscaler = index
+                     }
+@@ -241,25 +241,25 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Plane Downscaler:")
++                        text: qsTr("プレーン縮小方式：")
+                     }
+ 
+                     C.ComboBox {
+                         Layout.preferredWidth: 400
+                         firstInFocusChain: true
+-                        model: [qsTr("Chosen Downscaler"), qsTr("Box"), qsTr("Hermite"), qsTr("Bilinear"), qsTr("Bicubic"), qsTr("Gaussian"), qsTr("Catmull Rom"), qsTr("Mitchell"), qsTr("Lanczos")]
++                        model: [qsTr("選択中の縮小方式"), qsTr("ボックス"), qsTr("Hermite"), qsTr("バイリニア"), qsTr("バイキュービック"), qsTr("ガウス"), qsTr("Catmull Rom"), qsTr("Mitchell"), qsTr("Lanczos")]
+                         currentIndex: Chiaki.settings.placeboPlaneDownscaler
+                         onActivated: index => Chiaki.settings.placeboPlaneDownscaler = index
+                     }
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Chosen Downscaler)")
+-                    }
+-
+-                    Label {
+-                        Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Anti-ringing Strength:")
++                        text: qsTr("（選択中の縮小方式）")
++                    }
++
++                    Label {
++                        Layout.alignment: Qt.AlignRight
++                        text: qsTr("リンギング抑制強度：")
+                     }
+ 
+                     C.Slider {
+@@ -301,7 +301,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Enable Deinterlace:")
++                        text: qsTr("インターレース解除を有効化：")
+                     }
+ 
+                     C.CheckBox {
+@@ -311,18 +311,18 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(no)")
+-                    }
+-
+-                    Label {
+-                        Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Preset:")
++                        text: qsTr("（いいえ）")
++                    }
++
++                    Label {
++                        Layout.alignment: Qt.AlignRight
++                        text: qsTr("プリセット：")
+                         visible: Chiaki.settings.placeboDeinterlaceEnabled
+                     }
+ 
+                     C.ComboBox {
+                         Layout.preferredWidth: 400
+-                        model: [qsTr("Default")]
++                        model: [qsTr("標準")]
+                         currentIndex: Chiaki.settings.placeboDeinterlacePreset
+                         enabled: Chiaki.settings.placeboDeinterlaceEnabled
+                         visible: Chiaki.settings.placeboDeinterlaceEnabled
+@@ -331,19 +331,19 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Default)")
++                        text: qsTr("（標準）")
+                         visible: Chiaki.settings.placeboDeinterlaceEnabled
+                     }
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Algorithm:")
++                        text: qsTr("アルゴリズム：")
+                         visible: Chiaki.settings.placeboDeinterlaceEnabled
+                     }
+ 
+                     C.ComboBox {
+                         Layout.preferredWidth: 400
+-                        model: [qsTr("Weave"), qsTr("Bob"), qsTr("Yadif"), qsTr("Bwdif")]
++                        model: [qsTr("ウィーブ"), qsTr("ボブ"), qsTr("Yadif"), qsTr("Bwdif")]
+                         currentIndex: Chiaki.settings.placeboDeinterlaceAlgorithm
+                         enabled: Chiaki.settings.placeboDeinterlaceEnabled
+                         visible: Chiaki.settings.placeboDeinterlaceEnabled
+@@ -358,7 +358,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Skip spatial check:")
++                        text: qsTr("空間チェックを省略：")
+                         visible: Chiaki.settings.placeboDeinterlaceEnabled
+                     }
+ 
+@@ -372,7 +372,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(no)")
++                        text: qsTr("（いいえ）")
+                         visible: Chiaki.settings.placeboDeinterlaceEnabled
+                     }
+                 }
+@@ -392,11 +392,11 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Deband Enabled:")
++                        text: qsTr("バンディング除去を有効化：")
+                     }
+ 
+                     C.CheckBox {
+-                        text: qsTr("Enable Debanding")
++                        text: qsTr("バンディング除去を有効化")
+                         checked: Chiaki.settings.placeboDebandEnabled
+                         onToggled: Chiaki.settings.placeboDebandEnabled = checked
+                     }
+@@ -404,18 +404,18 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Checked)")
+-                    }
+-
+-                    Label {
+-                        Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Deband Preset:")
++                        text: qsTr("（オン）")
++                    }
++
++                    Label {
++                        Layout.alignment: Qt.AlignRight
++                        text: qsTr("バンディング除去プリセット：")
+                         visible: Chiaki.settings.placeboDebandEnabled
+                     }
+ 
+                     C.ComboBox {
+                         Layout.preferredWidth: 400
+-                        model: [qsTr("Custom"), qsTr("Default")]
++                        model: [qsTr("カスタム"), qsTr("標準")]
+                         currentIndex: Chiaki.settings.placeboDebandPreset
+                         onActivated: index => Chiaki.settings.placeboDebandPreset = index
+                         visible: Chiaki.settings.placeboDebandEnabled
+@@ -423,13 +423,13 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Custom)")
++                        text: qsTr("（カスタム）")
+                         visible: Chiaki.settings.placeboDebandEnabled
+                     }
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Deband Iterations:")
++                        text: qsTr("処理回数：")
+                         visible: Chiaki.settings.placeboDebandEnabled && (Chiaki.settings.placeboDebandPreset == 0)
+                     }
+ 
+@@ -460,7 +460,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Deband Threshold:")
++                        text: qsTr("処理しきい値：")
+                         visible: Chiaki.settings.placeboDebandEnabled && (Chiaki.settings.placeboDebandPreset == 0)
+                     }
+ 
+@@ -491,7 +491,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Deband Radius:")
++                        text: qsTr("処理半径：")
+                         visible: Chiaki.settings.placeboDebandEnabled && (Chiaki.settings.placeboDebandPreset == 0)
+                     }
+ 
+@@ -522,7 +522,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Deband Grain:")
++                        text: qsTr("粒状ノイズ：")
+                         visible: Chiaki.settings.placeboDebandEnabled && (Chiaki.settings.placeboDebandPreset == 0)
+                     }
+ 
+@@ -567,29 +567,29 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Sigmoidization Enabled:")
++                        text: qsTr("シグモイド変換を有効化：")
+                     }
+ 
+                     C.CheckBox {
+-                        text: qsTr("Enable Sigmoidization")
++                        text: qsTr("シグモイド変換を有効化")
+                         checked: Chiaki.settings.placeboSigmoidEnabled
+                         onToggled: Chiaki.settings.placeboSigmoidEnabled = checked
+                     }
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Checked)")
+-                    }
+-
+-                    Label {
+-                        Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Sigmoid Preset:")
++                        text: qsTr("（オン）")
++                    }
++
++                    Label {
++                        Layout.alignment: Qt.AlignRight
++                        text: qsTr("シグモイドのプリセット：")
+                         visible: Chiaki.settings.placeboSigmoidEnabled
+                     }
+ 
+                     C.ComboBox {
+                         Layout.preferredWidth: 400
+-                        model: [qsTr("Custom"), qsTr("Default")]
++                        model: [qsTr("カスタム"), qsTr("標準")]
+                         currentIndex: Chiaki.settings.placeboSigmoidPreset
+                         onActivated: index => Chiaki.settings.placeboSigmoidPreset = index
+                         visible: Chiaki.settings.placeboSigmoidEnabled
+@@ -597,13 +597,13 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Custom)")
++                        text: qsTr("（カスタム）")
+                         visible: Chiaki.settings.placeboSigmoidEnabled
+                     }
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Sigmoid Center:")
++                        text: qsTr("シグモイドの中心：")
+                         visible: Chiaki.settings.placeboSigmoidEnabled && (Chiaki.settings.placeboSigmoidPreset == 0)
+                     }
+ 
+@@ -634,7 +634,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Sigmoid Slope:")
++                        text: qsTr("シグモイドの傾き：")
+                         visible: Chiaki.settings.placeboSigmoidEnabled && (Chiaki.settings.placeboSigmoidPreset == 0)
+                     }
+ 
+@@ -679,29 +679,29 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Color Adjustment Enabled:")
++                        text: qsTr("色調整を有効化：")
+                     }
+ 
+                     C.CheckBox {
+-                        text: qsTr("Enable Color Adjustment")
++                        text: qsTr("色調整を有効化")
+                         checked: Chiaki.settings.placeboColorAdjustmentEnabled
+                         onToggled: Chiaki.settings.placeboColorAdjustmentEnabled = checked
+                     }
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Checked)")
+-                    }
+-
+-                    Label {
+-                        Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Color Adjustment Preset:")
++                        text: qsTr("（オン）")
++                    }
++
++                    Label {
++                        Layout.alignment: Qt.AlignRight
++                        text: qsTr("色調整のプリセット：")
+                         visible: Chiaki.settings.placeboColorAdjustmentEnabled
+                     }
+ 
+                     C.ComboBox {
+                         Layout.preferredWidth: 400
+-                        model: [qsTr("Custom"), qsTr("Neutral")]
++                        model: [qsTr("カスタム"), qsTr("Neutral")]
+                         currentIndex: Chiaki.settings.placeboColorAdjustmentPreset
+                         onActivated: index => Chiaki.settings.placeboColorAdjustmentPreset = index
+                         visible: Chiaki.settings.placeboColorAdjustmentEnabled
+@@ -709,13 +709,13 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Custom)")
++                        text: qsTr("（カスタム）")
+                         visible: Chiaki.settings.placeboColorAdjustmentEnabled
+                     }
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Brightness:")
++                        text: qsTr("明るさ：")
+                         visible: Chiaki.settings.placeboColorAdjustmentEnabled && (Chiaki.settings.placeboColorAdjustmentPreset == 0)
+                     }
+ 
+@@ -746,7 +746,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Contrast:")
++                        text: qsTr("コントラスト：")
+                         visible: Chiaki.settings.placeboColorAdjustmentEnabled && (Chiaki.settings.placeboColorAdjustmentPreset == 0)
+                     }
+ 
+@@ -777,7 +777,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Saturation:")
++                        text: qsTr("彩度：")
+                         visible: Chiaki.settings.placeboColorAdjustmentEnabled && (Chiaki.settings.placeboColorAdjustmentPreset == 0)
+                     }
+ 
+@@ -808,7 +808,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Hue:")
++                        text: qsTr("色相：")
+                         visible: Chiaki.settings.placeboColorAdjustmentEnabled && (Chiaki.settings.placeboColorAdjustmentPreset == 0)
+                     }
+ 
+@@ -839,7 +839,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Gamma:")
++                        text: qsTr("ガンマ：")
+                         visible: Chiaki.settings.placeboColorAdjustmentEnabled && (Chiaki.settings.placeboColorAdjustmentPreset == 0)
+                     }
+ 
+@@ -870,7 +870,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Temperature:")
++                        text: qsTr("色温度：")
+                         visible: Chiaki.settings.placeboColorAdjustmentEnabled && (Chiaki.settings.placeboColorAdjustmentPreset == 0)
+                     }
+ 
+@@ -915,29 +915,29 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("HDR Peak Detection Enabled:")
++                        text: qsTr("HDRピーク検出を有効化：")
+                     }
+ 
+                     C.CheckBox {
+-                        text: qsTr("Enable HDR Peak Detection")
++                        text: qsTr("HDRピーク検出を有効化")
+                         checked: Chiaki.settings.placeboPeakDetectionEnabled
+                         onToggled: Chiaki.settings.placeboPeakDetectionEnabled = checked
+                     }
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Checked)")
+-                    }
+-
+-                    Label {
+-                        Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Peak Detection Preset:")
++                        text: qsTr("（オン）")
++                    }
++
++                    Label {
++                        Layout.alignment: Qt.AlignRight
++                        text: qsTr("ピーク検出プリセット：")
+                         visible: Chiaki.settings.placeboPeakDetectionEnabled
+                     }
+ 
+                     C.ComboBox {
+                         Layout.preferredWidth: 400
+-                        model: [qsTr("Custom"), qsTr("Default"), qsTr("High Quality")]
++                        model: [qsTr("カスタム"), qsTr("標準"), qsTr("高画質")]
+                         currentIndex: Chiaki.settings.placeboPeakDetectionPreset
+                         onActivated: index => Chiaki.settings.placeboPeakDetectionPreset = index
+                         visible: Chiaki.settings.placeboPeakDetectionEnabled
+@@ -945,13 +945,13 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(High Quality)")
++                        text: qsTr("（高画質）")
+                         visible: Chiaki.settings.placeboPeakDetectionEnabled
+                     }
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Peak Smoothing Period:")
++                        text: qsTr("ピーク平滑化期間：")
+                         visible: Chiaki.settings.placeboPeakDetectionEnabled && (Chiaki.settings.placeboPeakDetectionPreset == 0)
+                     }
+ 
+@@ -982,7 +982,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Scene Threshold Low:")
++                        text: qsTr("シーン判定の下限しきい値：")
+                         visible: Chiaki.settings.placeboPeakDetectionEnabled && (Chiaki.settings.placeboPeakDetectionPreset == 0)
+                     }
+ 
+@@ -1013,7 +1013,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Scene Threshold High:")
++                        text: qsTr("シーン判定の上限しきい値：")
+                         visible: Chiaki.settings.placeboPeakDetectionEnabled && (Chiaki.settings.placeboPeakDetectionPreset == 0)
+                     }
+ 
+@@ -1044,7 +1044,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Peak Percentile:")
++                        text: qsTr("ピークの百分位：")
+                         visible: Chiaki.settings.placeboPeakDetectionEnabled && (Chiaki.settings.placeboPeakDetectionPreset == 0)
+                     }
+ 
+@@ -1075,7 +1075,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Black Cutoff:")
++                        text: qsTr("黒レベルのカットオフ：")
+                         visible: Chiaki.settings.placeboPeakDetectionEnabled && (Chiaki.settings.placeboPeakDetectionPreset == 0)
+                     }
+ 
+@@ -1106,12 +1106,12 @@
+ 
+                     Label {
+                     Layout.alignment: Qt.AlignRight
+-                    text: qsTr("Allow Delayed Peak:")
++                    text: qsTr("ピーク検出の遅延を許可：")
+                     visible: Chiaki.settings.placeboPeakDetectionEnabled && (Chiaki.settings.placeboPeakDetectionPreset == 0)
+                     }   
+ 
+                     C.CheckBox {
+-                        text: qsTr("Enable 1-Frame Delayed Peak")
++                        text: qsTr("ピーク検出を1フレーム遅延")
+                         checked: Chiaki.settings.placeboPeakDetectionAllowDelayedPeak
+                         onToggled: Chiaki.settings.placeboPeakDetectionAllowDelayedPeak = checked
+                         visible: Chiaki.settings.placeboPeakDetectionEnabled && (Chiaki.settings.placeboPeakDetectionPreset == 0)
+@@ -1119,7 +1119,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Unchecked)")
++                        text: qsTr("（オフ）")
+                         visible: Chiaki.settings.placeboPeakDetectionEnabled && (Chiaki.settings.placeboPeakDetectionPreset == 0)
+                     }
+                 }
+@@ -1139,29 +1139,29 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Color Mapping Enabled:")
++                        text: qsTr("カラーマッピングを有効化：")
+                     }
+ 
+                     C.CheckBox {
+-                        text: qsTr("Use Color Mapping Settings")
++                        text: qsTr("カラーマッピング設定を使用")
+                         checked: Chiaki.settings.placeboColorMappingEnabled
+                         onToggled: Chiaki.settings.placeboColorMappingEnabled = checked
+                     }
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Checked)")
+-                    }
+-
+-                    Label {
+-                        Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Color Mapping Preset:")
++                        text: qsTr("（オン）")
++                    }
++
++                    Label {
++                        Layout.alignment: Qt.AlignRight
++                        text: qsTr("カラーマッピングのプリセット：")
+                         visible: Chiaki.settings.placeboColorMappingEnabled
+                     }
+ 
+                     C.ComboBox {
+                         Layout.preferredWidth: 400
+-                        model: [qsTr("Custom"), qsTr("Default"), qsTr("High Quality")]
++                        model: [qsTr("カスタム"), qsTr("標準"), qsTr("高画質")]
+                         currentIndex: Chiaki.settings.placeboColorMappingPreset
+                         onActivated: index => Chiaki.settings.placeboColorMappingPreset = index
+                         visible: Chiaki.settings.placeboColorMappingEnabled
+@@ -1169,18 +1169,18 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(High Quality)")
++                        text: qsTr("（高画質）")
+                         visible: Chiaki.settings.placeboColorMappingEnabled
+                     }
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Color Mapping Settings:")
++                        text: qsTr("カラーマッピング設定：")
+                         visible: Chiaki.settings.placeboColorMappingEnabled && Chiaki.settings.placeboColorMappingPreset == 0
+                     }
+ 
+                     C.Button {
+-                        text: qsTr("Open")
++                        text: qsTr("開く")
+                         onClicked: root.showPlaceboColorMappingDialog()
+                         visible: Chiaki.settings.placeboColorMappingEnabled && Chiaki.settings.placeboColorMappingPreset == 0
+                         Material.roundedScale: Material.SmallScale
+--- a/gui/src/qml/ConsolePinDialog.qml
++++ b/gui/src/qml/ConsolePinDialog.qml
+@@ -9,8 +9,8 @@
+ 
+ DialogView {
+     property var consoleIndex
+-    title: qsTr("Set console pin")
+-    buttonText: qsTr("Set")
++    title: qsTr("ゲーム機のPINを設定")
++    buttonText: qsTr("設定")
+     buttonEnabled: pin.acceptableInput
+     onAccepted: {
+         Chiaki.setConsolePin(consoleIndex, pin.text.trim());
+@@ -28,7 +28,7 @@
+             columnSpacing: 20
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Remote Play PIN (4 digits):")
++                            text: qsTr("リモートプレイPIN（4桁）：")
+                         }
+ 
+                         TextField {
+--- a/gui/src/qml/PsnView.qml
++++ b/gui/src/qml/PsnView.qml
+@@ -20,7 +20,7 @@
+             return;
+         allowClose = false;
+         cancelling = true;
+-        infoLabel.text = qsTr("Cancelling connection with console over PSN ...");
++        infoLabel.text = qsTr("PSN経由の接続を中断しています…");
+         Chiaki.psnCancel(false);
+     }
+ 
+@@ -57,7 +57,7 @@
+         anchors.centerIn: parent
+         opacity: textVisible ? 1.0: 0.0
+         visible: opacity
+-        text: qsTr("Establishing connection with console over PSN ...")
++        text: qsTr("PSN経由でゲーム機に接続しています…")
+         Behavior on opacity { NumberAnimation { duration: 250 } }
+     }
+ 
+@@ -86,8 +86,8 @@
+             opacity: (textVisible && !cancelling) ? 1.0: 0.0
+             visible: opacity
+             text: {
+-                var typeString = registOnly ? qsTr("automatic registration") : qsTr("remote connection via PSN")
+-                qsTr("Press %1 to cancel %2").arg(Chiaki.controllers.length ? (root.controllerButton("circle").includes("deck") ? "B" : "Circle") : "escape or right-click").arg(typeString)
++                var typeString = registOnly ? qsTr("自動登録") : qsTr("PSN経由のリモート接続")
++                qsTr("%1で%2を中止").arg(Chiaki.controllers.length ? (root.controllerButton("circle").includes("deck") ? "B" : "Circle") : "escape or right-click").arg(typeString)
+             }
+         }
+ 
+@@ -142,7 +142,7 @@
+         parent: Overlay.overlay
+         x: Math.round((root.width - width) / 2)
+         y: Math.round((root.height - height) / 2)
+-        title: qsTr("Console Login PIN")
++        title: qsTr("ゲーム機のログインPIN")
+         modal: true
+         closePolicy: Popup.NoAutoClose
+         standardButtons: Dialog.Ok | Dialog.Cancel
+@@ -181,18 +181,18 @@
+             switch(Chiaki.connectState)
+             {
+                 case Chiaki.PsnConnectState.LinkingConsole:
+-                    infoLabel.text = registOnly ? qsTr("Registering PlayStation console with chiaki-ng ...") : qsTr("Linking chiaki-ng with PlayStation console ...")
++                    infoLabel.text = registOnly ? qsTr("PlayStationをchiaki-ngへ登録しています…") : qsTr("chiaki-ngとPlayStationを連携しています…")
+                     view.allowClose = false
+                     break
+                 case Chiaki.PsnConnectState.RegisteringConsole:
+                     view.registOnly = true;
+                     break
+                 case Chiaki.PsnConnectState.RegistrationFinished:
+-                    infoLabel.text = qsTr("Successfully registered console")
++                    infoLabel.text = qsTr("ゲーム機を登録しました")
+                     failTimer.restart()
+                     break
+                 case Chiaki.PsnConnectState.DataConnectionStart:
+-                    infoLabel.text = qsTr("Console Linked ... Establishing data connection with console over PSN ...")
++                    infoLabel.text = qsTr("ゲーム機との連携が完了しました。PSN経由のデータ接続を開始しています…")
+                     view.allowClose = true
+                     break
+                 case Chiaki.PsnConnectState.DataConnectionFinished:
+@@ -200,21 +200,21 @@
+                     break
+                 case Chiaki.PsnConnectState.ConnectFailed:
+                     if(!cancelling)
+-                        infoLabel.text = qsTr("Connection over PSN failed closing ...")
++                        infoLabel.text = qsTr("PSN経由の接続に失敗したため終了します…")
+                     failTimer.running = true
+                     break
+                 case Chiaki.PsnConnectState.ConnectFailedStart:
+                     if(!cancelling)
+-                        infoLabel.text = qsTr("PSN couldn't establish connection with PlayStation. Please try again ...")
++                        infoLabel.text = qsTr("PSN経由でPlayStationへ接続できませんでした。もう一度お試しください…")
+                     failTimer.running = true
+                     break
+                 case Chiaki.PsnConnectState.ConnectFailedConsoleUnreachable:
+                     if(!cancelling)
+-                        infoLabel.text = qsTr("Couldn't contact PlayStation over established connection, likely unsupported network type")
++                        infoLabel.text = qsTr("接続後にPlayStationと通信できません。対応していないネットワーク方式の可能性があります")
+                     failTimer.running = true
+                     break
+                 case Chiaki.PsnConnectState.WaitingForInternet:
+-                    infoLabel.text = qsTr("Establishing Internet Connection to PSN...")
++                    infoLabel.text = qsTr("PSNへインターネット接続しています…")
+                     break
+             }
+         }
+--- a/gui/src/qml/MainView.qml
++++ b/gui/src/qml/MainView.qml
+@@ -14,11 +14,11 @@
+         {
+             root.initialAsk = true;
+             if(Chiaki.settings.addSteamShortcutAsk && (typeof Chiaki.createSteamShortcut === "function"))
+-                root.showRemindDialog(qsTr("Official Steam artwork + controller layout"), qsTr("Would you like to either create a new non-Steam game for chiaki-ng\nor update an existing non-Steam game with the official artwork and controller layout?") + "\n\n" + qsTr("(Note: If you select no now and want to do this later, click the button or press R3 from the main menu.)"), false, () => root.showSteamShortcutDialog(true));
++                root.showRemindDialog(qsTr("公式Steam画像とコントローラーレイアウト"), qsTr("chiaki-ngを非Steamゲームとして新規登録するか、登録済みゲームを公式画像・コントローラーレイアウトで更新しますか？") + "\n\n" + qsTr("（後で設定する場合はホームのボタンかR3を押してください）"), false, () => root.showSteamShortcutDialog(true));
+             else if(Chiaki.settings.remotePlayAsk)
+             {
+                 if(!Chiaki.settings.psnRefreshToken || !Chiaki.settings.psnAuthToken || !Chiaki.settings.psnAuthTokenExpiry || !Chiaki.settings.psnAccountId)
+-                    root.showRemindDialog(qsTr("Remote Play via PSN"), qsTr("Would you like to connect to PSN?\nThis enables:\n- Automatic registration\n- Playing outside of your home network without port forwarding?") + "\n\n" + qsTr("(Note: If you select no now and want to do this later, go to the Config section of the settings.)"), true, () => root.showPSNTokenDialog(false));
++                    root.showRemindDialog(qsTr("PSN経由のリモートプレイ"), qsTr("PSNへ接続しますか？\n接続すると、次の機能を利用できます。\n・自動登録\n・ポート開放せずに外出先からプレイ") + "\n\n" + qsTr("（後で設定する場合は「設定」→「設定」タブを開いてください）"), true, () => root.showPSNTokenDialog(false));
+                 else
+                     Chiaki.settings.remotePlayAsk = false;
+             }
+@@ -44,7 +44,7 @@
+     Keys.onReturnPressed: if (hostsView.currentItem) hostsView.currentItem.connectToHost()
+     Keys.onYesPressed: if (hostsView.currentItem) hostsView.currentItem.wakeUpHost()
+     Keys.onNoPressed: if (hostsView.currentItem) hostsView.currentItem.deleteHost()
+-    Keys.onEscapePressed: root.showConfirmDialog(qsTr("Quit"), qsTr("Are you sure you want to quit?"), () => Qt.quit())
++    Keys.onEscapePressed: root.showConfirmDialog(qsTr("終了"), qsTr("本当に終了しますか？"), () => Qt.quit())
+     Keys.onPressed: (event) => {
+         if (event.modifiers)
+             return;
+@@ -99,9 +99,9 @@
+ 
+             Button {
+                 Layout.fillHeight: true
+-                Layout.preferredWidth: 350
+-                flat: true
+-                text: "Create Steam Shortcut"
++                Layout.preferredWidth: 240
++                flat: true
++                text: qsTr("Steamショートカットを作成")
+                 focusPolicy: Qt.NoFocus
+                 onClicked: root.showSteamShortcutDialog(false)
+                 Material.roundedScale: Material.SmallScale
+@@ -121,9 +121,9 @@
+ 
+             Button {
+                 Layout.fillHeight: true
+-                Layout.preferredWidth: 400
+-                flat: true
+-                text: "Refresh PSN Hosts"
++                Layout.preferredWidth: 280
++                flat: true
++                text: qsTr("PSN接続先を更新")
+                 icon.source: "qrc:/icons/r1.svg"
+                 focusPolicy: Qt.NoFocus
+                 onClicked: Chiaki.refreshPsnToken();
+@@ -133,7 +133,7 @@
+ 
+             Button {
+                 Layout.fillHeight: true
+-                Layout.preferredWidth: 400
++                Layout.preferredWidth: 280
+                 flat: true
+                 focusPolicy: Qt.NoFocus
+                 Material.roundedScale: Material.SmallScale
+@@ -142,9 +142,9 @@
+ 
+             Button {
+                 Layout.fillHeight: true
+-                Layout.preferredWidth: 300
+-                flat: true
+-                text: "Add Manual Host"
++                Layout.preferredWidth: 230
++                flat: true
++                text: qsTr("接続先を手動追加")
+                 focusPolicy: Qt.NoFocus
+                 onClicked: root.showManualHostDialog()
+                 Material.roundedScale: Material.SmallScale
+@@ -159,6 +159,20 @@
+                     sourceSize: Qt.size(width, height)
+                     source: "qrc:/icons/r3.svg"
+                 }
++            }
++
++            Button {
++                id: accountSwitchButton
++                Layout.fillHeight: true
++                Layout.preferredWidth: 230
++                Layout.minimumWidth: 170
++                flat: true
++                focusPolicy: Qt.NoFocus
++                text: qsTr("アカウント：") + (Chiaki.settings.currentProfile || qsTr("標準"))
++                onClicked: root.showProfileDialog()
++                Material.roundedScale: Material.SmallScale
++                ToolTip.visible: hovered
++                ToolTip.text: qsTr("アカウントの追加・切り替え")
+             }
+ 
+             Button {
+@@ -227,10 +241,10 @@
+ 
+             function deleteHost() {
+                 if (modelData.manual)
+-                    root.showConfirmDialog(qsTr("Delete Console"), qsTr("Are you sure you want to delete this console?"), () => {Chiaki.deleteHost(index)});
++                    root.showConfirmDialog(qsTr("ゲーム機を削除"), qsTr("このゲーム機の登録を削除しますか？"), () => {Chiaki.deleteHost(index)});
+                         
+                 else if (modelData.discovered && !modelData.registered)
+-                    root.showConfirmDialog(qsTr("Hide Console"), qsTr("Are you sure you want to hide this console?") + "\n\n" + qsTr("Note: You can unhide from the Consoles section of the Settings under Hidden Consoles"), () => Chiaki.hideHost(modelData.mac, modelData.name));
++                    root.showConfirmDialog(qsTr("ゲーム機を非表示"), qsTr("このゲーム機を非表示にしますか？") + "\n\n" + qsTr("設定の「ゲーム機」→「非表示のゲーム機」から再表示できます"), () => Chiaki.hideHost(modelData.mac, modelData.name));
+ 
+             }
+ 
+@@ -263,15 +277,15 @@
+                         if (modelData.name)
+                             t += modelData.name + "\n";
+                         if (modelData.address)
+-                            t += qsTr("Address: %1").arg(Chiaki.settings.streamerMode ? "hidden" : modelData.address);
++                            t += qsTr("アドレス：%1").arg(Chiaki.settings.streamerMode ? "hidden" : modelData.address);
+                         if (modelData.mac)
+-                            t += "\n" + qsTr("ID: %1 (%2)").arg(Chiaki.settings.streamerMode ? "hidden" : modelData.mac).arg(modelData.registered ? qsTr("registered") : qsTr("unregistered"));
++                            t += "\n" + qsTr("ID：%1（%2）").arg(Chiaki.settings.streamerMode ? "hidden" : modelData.mac).arg(modelData.registered ? qsTr("登録済み") : qsTr("未登録"));
+                         if (modelData.duid)
+                         {
+                             if(modelData.discovered)
+-                                t += "\n" + qsTr("Automatic Registration Available");
++                                t += "\n" + qsTr("自動登録を利用できます");
+                             else
+-                                t += "\n" + qsTr("Remote Connection via PSN");
++                                t += "\n" + qsTr("PSN経由のリモート接続");
+                         } 
+                         else
+                         {
+@@ -279,12 +293,12 @@
+                             if(modelData.discovered)
+                             {
+                                 if(modelData.manual)
+-                                    t += qsTr("discovered + manual")
++                                    t += qsTr("自動検出＋手動")
+                                 else
+-                                    t += qsTr("discovered");
++                                    t += qsTr("検出済み");
+                             }
+                             else
+-                                t += qsTr("manual");
++                                t += qsTr("手動");
+                         }
+                         return t;
+                     }
+@@ -296,13 +310,13 @@
+                         let t = "";
+                         if(modelData.duid)
+                             return t;
+-                        t += qsTr("State: %1").arg(modelData.state);
++                        t += qsTr("状態：%1").arg(modelData.state);
+                         if(!modelData.discovered)
+                             return t;
+                         if (modelData.app)
+-                            t += "\n" + qsTr("App: %1").arg(modelData.app);
++                            t += "\n" + qsTr("アプリ：%1").arg(modelData.app);
+                         if (modelData.titleId)
+-                            t += "\n" + qsTr("Title ID: %1").arg(modelData.titleId);
++                            t += "\n" + qsTr("タイトルID：%1").arg(modelData.titleId);
+                         return t;
+                     }
+                 }
+@@ -315,7 +329,7 @@
+ 
+                     Button {
+                         Layout.alignment: Qt.AlignCenter
+-                        text: modelData.manual ? qsTr("Delete") : qsTr("Hide")
++                        text: modelData.manual ? qsTr("削除") : qsTr("非表示")
+                         flat: true
+                         padding: 20
+                         leftPadding: delegate.highlighted ? 50 : undefined
+@@ -340,7 +354,7 @@
+ 
+                     Button {
+                         Layout.alignment: Qt.AlignCenter
+-                        text: qsTr("Wake Up")
++                        text: qsTr("起動")
+                         flat: true
+                         padding: 20
+                         leftPadding: delegate.highlighted ? 50 : undefined
+@@ -365,7 +379,7 @@
+ 
+                     Button {
+                         Layout.alignment: Qt.AlignCenter
+-                        text: qsTr("Update Console Pin")
++                        text: qsTr("ゲーム機のPINを更新")
+                         flat: true
+                         padding: 20
+                         leftPadding: delegate.highlighted ? 50 : undefined
+--- a/gui/src/qml/RegistDialog.qml
++++ b/gui/src/qml/RegistDialog.qml
+@@ -10,8 +10,8 @@
+ DialogView {
+     property bool ps5: true
+     property alias host: hostField.text
+-    title: qsTr("Register Console")
+-    buttonText: qsTr("Register")
++    title: qsTr("ゲーム機を登録")
++    buttonText: qsTr("登録する")
+     buttonEnabled: hostField.text.trim() && pin.acceptableInput && cpin.acceptableInput && (!onlineId.visible || onlineId.text.trim()) && (!accountId.visible || accountId.text.trim())
+     StackView.onActivated: {
+         if(Chiaki.settings.psnAccountId)
+@@ -44,7 +44,7 @@
+ 
+             Label {
+                 Layout.alignment: Qt.AlignRight
+-                text: qsTr("Host:")
++                text: qsTr("ホスト：")
+             }
+ 
+             C.TextField {
+@@ -56,7 +56,7 @@
+ 
+             Label {
+                 Layout.alignment: Qt.AlignRight
+-                text: qsTr("PSN Online-ID:")
++                text: qsTr("PSNオンラインID：")
+                 visible: onlineId.visible
+             }
+ 
+@@ -64,13 +64,13 @@
+                 id: onlineId
+                 echoMode: Chiaki.settings.streamerMode ? TextInput.Password : TextInput.Normal
+                 visible: ps4_7.checked
+-                placeholderText: qsTr("username, case-sensitive")
+-                Layout.preferredWidth: 400
+-            }
+-
+-            Label {
+-                Layout.alignment: Qt.AlignRight
+-                text: qsTr("PSN Account-ID:")
++                placeholderText: qsTr("ユーザー名（大文字・小文字を区別）")
++                Layout.preferredWidth: 400
++            }
++
++            Label {
++                Layout.alignment: Qt.AlignRight
++                text: qsTr("PSNアカウントID：")
+                 visible: accountId.visible
+             }
+ 
+@@ -99,7 +99,7 @@
+                     }
+                     topPadding: 18
+                     bottomPadding: 18
+-                    text: qsTr("PSN Login")
++                    text: qsTr("PSNにログイン")
+                     onClicked: stack.push(psnLoginDialogComponent, {login: true, callback: (id) => accountId.text = id})
+                     visible: !Chiaki.settings.psnAccountId
+                     Material.roundedScale: Material.SmallScale
+@@ -118,7 +118,7 @@
+                     }
+                     topPadding: 18
+                     bottomPadding: 18
+-                    text: qsTr("Public Lookup")
++                    text: qsTr("公開情報から検索")
+                     onClicked: stack.push(psnLoginDialogComponent, {login: false, callback: (id) => accountId.text = id})
+                     visible: !Chiaki.settings.psnAccountId
+                     Material.roundedScale: Material.SmallScale
+@@ -132,7 +132,7 @@
+ 
+             Label {
+                 Layout.alignment: Qt.AlignRight
+-                text: qsTr("Remote Play PIN:")
++                text: qsTr("リモートプレイのPIN：")
+             }
+ 
+             C.TextField {
+@@ -151,7 +151,7 @@
+ 
+             Label {
+                 Layout.alignment: Qt.AlignRight
+-                text: qsTr("Console Pin [Optional]")
++                text: qsTr("ゲーム機のPIN（任意）")
+             }
+ 
+             C.TextField {
+@@ -163,7 +163,7 @@
+ 
+             Label {
+                 Layout.alignment: Qt.AlignRight
+-                text: qsTr("Console:")
++                text: qsTr("ゲーム機：")
+             }
+ 
+             ColumnLayout {
+@@ -172,19 +172,19 @@
+                 C.RadioButton {
+                     id: ps4_7
+                     property int target: 800
+-                    text: qsTr("PS4 Firmware < 7.0")
++                    text: qsTr("PS4ファームウェア7.0未満")
+                 }
+ 
+                 C.RadioButton {
+                     id: ps4_75
+                     property int target: 900
+-                    text: qsTr("PS4 Firmware >= 7.0, < 8.0")
++                    text: qsTr("PS4ファームウェア7.0以上・8.0未満")
+                 }
+ 
+                 C.RadioButton {
+                     id: ps4_8
+                     property int target: 1000
+-                    text: qsTr("PS4 Firmware >= 8.0")
++                    text: qsTr("PS4ファームウェア8.0以上")
+                     checked: !ps5
+                 }
+ 
+@@ -209,7 +209,7 @@
+                 parent: Overlay.overlay
+                 x: Math.round((root.width - width) / 2)
+                 y: Math.round((root.height - height) / 2)
+-                title: qsTr("Register Console")
++                title: qsTr("ゲーム機を登録")
+                 modal: true
+                 closePolicy: Popup.NoAutoClose
+                 standardButtons: Dialog.Cancel
+--- a/gui/src/qml/ControllerMappingDialog.qml
++++ b/gui/src/qml/ControllerMappingDialog.qml
+@@ -12,7 +12,7 @@
+     property bool finalClosing: false
+     property bool quitButtonMapping: true
+     title: Chiaki.currentControllerType
+-    buttonText: qsTr("Update Controller Mapping")
++    buttonText: qsTr("コントローラー割り当てを更新")
+     buttonEnabled: Chiaki.controllerMappingAltered
+     onAccepted: {
+         Chiaki.controllerMappingApply();
+@@ -43,7 +43,7 @@
+             id: analogStickMapping
+             property bool firstInFocusChain: true
+             property bool lastInFocusChain: false
+-            text: qsTr("Allow mapping analog sticks and L2/R2")
++            text: qsTr("スティックとL2／R2の割り当てを許可")
+             checked: Chiaki.enableAnalogStickMapping
+             onToggled: Chiaki.enableAnalogStickMapping = checked
+             Keys.onPressed: (event) => {
+@@ -286,7 +286,7 @@
+             parent: Overlay.overlay
+             x: Math.round((root.width - width) / 2)
+             y: Math.round((root.height - height) / 2)
+-            title: qsTr("Button Capture")
++            title: qsTr("ボタン入力の取得")
+             modal: true
+             standardButtons: Dialog.Close
+             closePolicy: Popup.CloseOnPressOutside
+@@ -326,7 +326,7 @@
+             Label {
+                 Layout.preferredWidth: 400
+                 id: buttonLabel
+-                text: qsTr("Press any ") + Chiaki.currentControllerType + qsTr(" button to map to DualSense controller button or click close")
++                text: qsTr("いずれかのキーを押してください：") + Chiaki.currentControllerType + qsTr("ボタンを押してDualSenseに割り当てるか、閉じてください")
+             }
+         }
+ 
+--- a/gui/src/qml/DisplaySettingsDialog.qml
++++ b/gui/src/qml/DisplaySettingsDialog.qml
+@@ -12,8 +12,8 @@
+ DialogView {
+     id: dialog
+     property alias gridHeight: displayGrid.height
+-    title: qsTr("Display Settings")
+-    header: qsTr("* Defaults in () to right of value or marked with (Default)")
++    title: qsTr("表示設定")
++    header: qsTr("括弧内の値、または「標準」は初期値を表します")
+     buttonVisible: false
+ 
+     Item {
+@@ -31,48 +31,48 @@
+ 
+             Label {
+                 Layout.alignment: Qt.AlignRight
+-                text: qsTr("Target Primaries:")
++                text: qsTr("目標の原色座標：")
+             }
+ 
+             C.ComboBox {
+                 firstInFocusChain: true
+                 Layout.preferredWidth: 600
+-                model: [qsTr("Auto"), qsTr("ITU-R Rec. BT.601 NTSC (Standard Gamut)"), qsTr("ITU-R Rec. BT.601 PAL (Standard Gamut)"), qsTr("ITU-R Rec. BT.709 (Standard Gamut)"), qsTr("ITU-R Rec. BT.470 M (Standard Gamut)"), qsTr("EBU Tech. 3213-E (Standard Gamut)"), qsTr("ITU-R Rec. BT.2020 (Wide Gamut)"), qsTr("Apple RGB (Wide Gamut)"), qsTr("Adobe RGB (Wide Gamut)"), qsTr("ProPhoto RGB (Wide Gamut)"), qsTr("CIE 1931 RGB primaries (Wide Gamut)"), qsTr("DCI-P3 (Wide Gamut)"), qsTr("DCI-P3 with D65 white point (Wide Gamut)"), qsTr("Panasonic V-Gamut (Wide Gamut)"), qsTr("Sony S-Gamut (Wide Gamut)"), qsTr("Traditional film primaries with Illuminant C (Wide Gamut)"), qsTr("ACES Primaries #0 (Wide Gamut)"), qsTr("ACES Primaries #1 (Wide Gamut)")]
++                model: [qsTr("自動"), qsTr("ITU-R Rec. BT.601 NTSC (Standard Gamut)"), qsTr("ITU-R Rec. BT.601 PAL (Standard Gamut)"), qsTr("ITU-R Rec. BT.709 (Standard Gamut)"), qsTr("ITU-R Rec. BT.470 M (Standard Gamut)"), qsTr("EBU Tech. 3213-E (Standard Gamut)"), qsTr("ITU-R Rec. BT.2020 (Wide Gamut)"), qsTr("Apple RGB (Wide Gamut)"), qsTr("Adobe RGB (Wide Gamut)"), qsTr("ProPhoto RGB (Wide Gamut)"), qsTr("CIE 1931 RGB primaries (Wide Gamut)"), qsTr("DCI-P3 (Wide Gamut)"), qsTr("DCI-P3 with D65 white point (Wide Gamut)"), qsTr("Panasonic V-Gamut (Wide Gamut)"), qsTr("Sony S-Gamut (Wide Gamut)"), qsTr("Traditional film primaries with Illuminant C (Wide Gamut)"), qsTr("ACES Primaries #0 (Wide Gamut)"), qsTr("ACES Primaries #1 (Wide Gamut)")]
+                 currentIndex: Chiaki.settings.displayTargetPrim
+                 onActivated: index => Chiaki.settings.displayTargetPrim = index
+             }
+ 
+             Label {
+                 Layout.alignment: Qt.AlignRight
+-                text: qsTr("(Auto)")
++                text: qsTr("（自動）")
+             }
+ 
+             Label {
+                 Layout.alignment: Qt.AlignRight
+-                text: qsTr("Target Transfer Characteristics:")
++                text: qsTr("目標の伝達特性：")
+             }
+ 
+             C.ComboBox {
+                 Layout.preferredWidth: 600
+-                model: [qsTr("Auto"), qsTr("ITU-R Rec. BT.1886 (SDR)"), qsTr("IEC 61966-2-4 sRGB (SDR)"), qsTr("Linear light content (SDR)"), qsTr("IPure power gamma 1.8 (SDR)"), qsTr("Pure power gamma 2.0 (SDR)"), qsTr("Pure power gamma 2.2 (SDR)"), qsTr("Pure power gamma 2.4 (SDR)"), qsTr("Pure power gamma 2.6 (SDR)"), qsTr("Pure power gamma 2.8 (SDR)"), qsTr("ProPhoto RGB (SDR)"), qsTr("Digital Cinema Distribution Master (SDR)"), qsTr("ITU-R BT.2100 PQ / SMPTE ST2048 (HDR)"), qsTr("ITU-R BT.2100 HLG / ARIB STD-B67 (HDR)"), qsTr("Panasonic V-Log (HDR)"), qsTr("Sony S-Log1 (HDR)"), qsTr("Sony S-Log2 (HDR)")]
++                model: [qsTr("自動"), qsTr("ITU-R Rec. BT.1886 (SDR)"), qsTr("IEC 61966-2-4 sRGB (SDR)"), qsTr("線形光のコンテンツ（SDR）"), qsTr("IPure power gamma 1.8 (SDR)"), qsTr("べき乗ガンマ2.0（SDR）"), qsTr("べき乗ガンマ2.2（SDR）"), qsTr("べき乗ガンマ2.4（SDR）"), qsTr("べき乗ガンマ2.6（SDR）"), qsTr("べき乗ガンマ2.8（SDR）"), qsTr("ProPhoto RGB (SDR)"), qsTr("デジタルシネマ配信用マスター（SDR）"), qsTr("ITU-R BT.2100 PQ / SMPTE ST2048 (HDR)"), qsTr("ITU-R BT.2100 HLG / ARIB STD-B67 (HDR)"), qsTr("Panasonic V-Log (HDR)"), qsTr("Sony S-Log1 (HDR)"), qsTr("Sony S-Log2 (HDR)")]
+                 currentIndex: Chiaki.settings.displayTargetTrc
+                 onActivated: index => Chiaki.settings.displayTargetTrc = index
+             }
+ 
+             Label {
+                 Layout.alignment: Qt.AlignRight
+-                text: qsTr("(Auto)")
++                text: qsTr("（自動）")
+             }
+ 
+             Label {
+                 Layout.alignment: Qt.AlignRight
+-                text: qsTr("Target Peak:")
++                text: qsTr("目標輝度ピーク：")
+             }
+ 
+             C.ComboBox {
+                 id: targetPeakChoice
+                 Layout.preferredWidth: 400
+-                model: [qsTr("Auto"), qsTr("Numeric Value")]
++                model: [qsTr("自動"), qsTr("数値")]
+                 currentIndex: {
+                     if(Chiaki.settings.displayTargetPeak == 0)
+                         0;
+@@ -89,12 +89,12 @@
+ 
+             Label {
+                 Layout.alignment: Qt.AlignRight
+-                text: qsTr("(Auto)")
++                text: qsTr("（自動）")
+             }
+ 
+             Label {
+                 Layout.alignment: Qt.AlignRight
+-                text: qsTr("Target Peak Value:")
++                text: qsTr("目標輝度ピーク値：")
+                 visible: targetPeakChoice.currentIndex == 1
+             }
+             
+@@ -113,7 +113,7 @@
+                         verticalCenter: parent.verticalCenter
+                         leftMargin: 10
+                     }
+-                    text: parent.value + qsTr(" nits")
++                    text: parent.value + qsTr(" ニト")
+                 }
+                 visible: targetPeakChoice.currentIndex == 1
+             }
+@@ -126,14 +126,14 @@
+ 
+             Label {
+                 Layout.alignment: Qt.AlignRight
+-                text: qsTr("Target Contrast:")
++                text: qsTr("目標コントラスト：")
+             }
+ 
+             C.ComboBox {
+                 id: targetContrastChoice
+                 Layout.preferredWidth: 400
+                 lastInFocusChain: currentIndex != 2
+-                model: [qsTr("Auto"), qsTr("Infinity"), qsTr("Numeric Value")]
++                model: [qsTr("自動"), qsTr("無限大"), qsTr("数値")]
+                 currentIndex: {
+                     if(Chiaki.settings.displayTargetContrast == -1)
+                         1;
+@@ -154,12 +154,12 @@
+ 
+             Label {
+                 Layout.alignment: Qt.AlignRight
+-                text: qsTr("(Auto)")
++                text: qsTr("（自動）")
+             }
+ 
+             Label {
+                 Layout.alignment: Qt.AlignRight
+-                text: qsTr("Target Contrast Value:")
++                text: qsTr("目標コントラスト値：")
+                 visible: targetContrastChoice.currentIndex == 2
+             }
+             
+--- a/gui/src/qml/PlaceboColorMappingDialog.qml
++++ b/gui/src/qml/PlaceboColorMappingDialog.qml
+@@ -37,8 +37,8 @@
+         LinearLight
+     }
+     id: dialog
+-    title: qsTr("Color Mapping Settings")
+-    header: qsTr("* Defaults in () to right of value or marked with (Default)")
++    title: qsTr("カラーマッピング設定")
++    header: qsTr("括弧内の値、または「標準」は初期値を表します")
+     buttonVisible: false
+     Keys.onPressed: (event) => {
+         if (event.modifiers)
+@@ -66,27 +66,27 @@
+             }
+ 
+             TabButton {
+-                text: qsTr("Gamut Mapping 1")
++                text: qsTr("色域マッピング 1")
+                 focusPolicy: Qt.NoFocus
+             }
+ 
+             TabButton {
+-                text: qsTr("Gamut Mapping 2")
++                text: qsTr("色域マッピング 2")
+                 focusPolicy: Qt.NoFocus
+             }
+ 
+             TabButton {
+-                text: qsTr("Tone-mapping 1")
++                text: qsTr("トーンマッピング 1")
+                 focusPolicy: Qt.NoFocus
+             }
+ 
+             TabButton {
+-                text: qsTr("Tone-mapping 2")
++                text: qsTr("トーンマッピング 2")
+                 focusPolicy: Qt.NoFocus
+             }
+ 
+            TabButton {
+-                text: qsTr("Tone-mapping 3")
++                text: qsTr("トーンマッピング 3")
+                 focusPolicy: Qt.NoFocus
+             }
+         }
+@@ -115,25 +115,25 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Gamut Mapping Function:")
++                        text: qsTr("色域マッピング方式：")
+                     }
+ 
+                     C.ComboBox {
+                         Layout.preferredWidth: 400
+                         firstInFocusChain: true
+-                        model: [qsTr("Clip"), qsTr("Perceptual"), qsTr("Soft Clip"), qsTr("Relative"), qsTr("Saturation"), qsTr("Absolute"), qsTr("Desaturate"), qsTr("Darken"), qsTr("Highlight"), qsTr("Linear")]
++                        model: [qsTr("クリップ"), qsTr("知覚"), qsTr("ソフトクリップ"), qsTr("相対"), qsTr("彩度"), qsTr("絶対"), qsTr("彩度を下げる"), qsTr("暗くする"), qsTr("ハイライト"), qsTr("リニア")]
+                         currentIndex: Chiaki.settings.placeboGamutMappingFunction
+                         onActivated: index => Chiaki.settings.placeboGamutMappingFunction = index
+                     }
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Perceptual)")
+-                    }
+-
+-                    Label {
+-                        Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Perceptual Deadzone:")
++                        text: qsTr("（知覚）")
++                    }
++
++                    Label {
++                        Layout.alignment: Qt.AlignRight
++                        text: qsTr("知覚デッドゾーン：")
+                         visible: Chiaki.settings.placeboGamutMappingFunction == PlaceboColorMappingDialog.GamutMappingFunction.Perceptual
+                     }
+ 
+@@ -164,7 +164,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Perceptual Strength:")
++                        text: qsTr("知覚強度：")
+                         visible: Chiaki.settings.placeboGamutMappingFunction == PlaceboColorMappingDialog.GamutMappingFunction.Perceptual
+                     }
+ 
+@@ -196,7 +196,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Colorimetric Gamma:")
++                        text: qsTr("測色ガンマ：")
+                         visible: Chiaki.settings.placeboGamutMappingFunction == PlaceboColorMappingDialog.GamutMappingFunction.Relative || Chiaki.settings.placeboGamutMappingFunction == PlaceboColorMappingDialog.GamutMappingFunction.Absolute || Chiaki.settings.placeboGamutMappingFunction == PlaceboColorMappingDialog.GamutMappingFunction.Darken
+                     }
+ 
+@@ -227,7 +227,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Soft Clip Knee:")
++                        text: qsTr("ソフトクリップのニー：")
+                         visible: Chiaki.settings.placeboGamutMappingFunction == PlaceboColorMappingDialog.GamutMappingFunction.Perceptual || Chiaki.settings.placeboGamutMappingFunction == PlaceboColorMappingDialog.GamutMappingFunction.SoftClip
+                     }
+ 
+@@ -258,7 +258,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Soft Clip Desaturation:")
++                        text: qsTr("ソフトクリップの彩度低下：")
+                         visible: Chiaki.settings.placeboGamutMappingFunction == PlaceboColorMappingDialog.GamutMappingFunction.SoftClip
+                     }
+ 
+@@ -303,7 +303,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("LUT 3D Size I:")
++                        text: qsTr("3D LUT サイズI：")
+                     }
+ 
+                     C.Slider {
+@@ -331,7 +331,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("LUT 3D Size C:")
++                        text: qsTr("3D LUT サイズC：")
+                     }
+ 
+                     C.Slider {
+@@ -359,7 +359,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("LUT 3D Size h:")
++                        text: qsTr("3D LUT サイズh：")
+                     }
+ 
+                     C.Slider {
+@@ -387,34 +387,34 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("LUT 3D Tricubic Enabled:")
++                        text: qsTr("3D LUTの三次補間：")
+                     }
+ 
+                     C.CheckBox {
+-                        text: qsTr("Enable Tricubic Interpolation for 3DLUTs")
++                        text: qsTr("3D LUTで三次補間を有効化")
+                         checked: Chiaki.settings.placeboGamutMappingLut3dTricubicEnabled
+                         onToggled: Chiaki.settings.placeboGamutMappingLut3dTricubicEnabled = checked
+                     }
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Unchecked)")
+-                    }
+-
+-                    Label {
+-                        Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Gamut Expansion Enabled:")
++                        text: qsTr("（オフ）")
++                    }
++
++                    Label {
++                        Layout.alignment: Qt.AlignRight
++                        text: qsTr("色域拡張を有効化：")
+                     }
+ 
+                     C.CheckBox {
+-                        text: qsTr("Enable Gamut Expansion")
++                        text: qsTr("色域拡張を有効化")
+                         checked: Chiaki.settings.placeboGamutMappingGamutExpansionEnabled
+                         onToggled: Chiaki.settings.placeboGamutMappingGamutExpansionEnabled = checked
+                     }
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Unchecked)")
++                        text: qsTr("（オフ）")
+                     }
+                 }
+             }
+@@ -433,13 +433,13 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Tone-mapping Function:")
++                        text: qsTr("トーンマッピング方式：")
+                     }
+ 
+                     C.ComboBox {
+                         Layout.preferredWidth: 400
+                         firstInFocusChain: true
+-                        model: [qsTr("Clip"), qsTr("Spline"), qsTr("St2094-40"), qsTr("St-2094-10"), qsTr("Bt2390"), qsTr("Bt2446a"), qsTr("Reinhard"), qsTr("Mobius"), qsTr("Hable"), qsTr("Gamma"), qsTr("Linear"), qsTr("Linear Light")]
++                        model: [qsTr("クリップ"), qsTr("Spline"), qsTr("St2094-40"), qsTr("St-2094-10"), qsTr("Bt2390"), qsTr("Bt2446a"), qsTr("Reinhard"), qsTr("Mobius"), qsTr("Hable"), qsTr("ガンマ"), qsTr("リニア"), qsTr("線形光")]
+                         currentIndex: Chiaki.settings.placeboToneMappingFunction
+                         onActivated: index => Chiaki.settings.placeboToneMappingFunction = index
+                     }
+@@ -451,7 +451,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Knee Adaptation:")
++                        text: qsTr("ニーの適応：")
+                         visible: Chiaki.settings.placeboToneMappingFunction == PlaceboColorMappingDialog.ToneMappingFunction.Spline || Chiaki.settings.placeboToneMappingFunction == PlaceboColorMappingDialog.ToneMappingFunction.St209440 || Chiaki.settings.placeboToneMappingFunction == PlaceboColorMappingDialog.ToneMappingFunction.St209410
+                     }
+ 
+@@ -483,7 +483,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Knee Minimum:")
++                        text: qsTr("ニーの最小値：")
+                         visible: kneeadaptation.visible
+                     }
+ 
+@@ -514,7 +514,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Knee Maximum:")
++                        text: qsTr("ニーの最大値：")
+                         visible: kneeadaptation.visible
+                     }
+ 
+@@ -545,7 +545,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Knee Default:")
++                        text: qsTr("ニーの初期値：")
+                     }
+ 
+                     C.Slider {
+@@ -573,7 +573,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Knee Offset:")
++                        text: qsTr("ニーのオフセット：")
+                         visible: Chiaki.settings.placeboToneMappingFunction == PlaceboColorMappingDialog.ToneMappingFunction.Bt2390
+                     }
+ 
+@@ -618,7 +618,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Slope Tuning:")
++                        text: qsTr("傾きの調整：")
+                         visible: Chiaki.settings.placeboToneMappingFunction == PlaceboColorMappingDialog.ToneMappingFunction.Spline
+                     }
+ 
+@@ -650,7 +650,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Slope Offset:")
++                        text: qsTr("傾きのオフセット：")
+                         visible: Chiaki.settings.placeboToneMappingFunction == PlaceboColorMappingDialog.ToneMappingFunction.Spline
+                     }
+ 
+@@ -681,7 +681,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Spline Contrast:")
++                        text: qsTr("スプラインのコントラスト：")
+                         visible: Chiaki.settings.placeboToneMappingFunction == PlaceboColorMappingDialog.ToneMappingFunction.Spline
+                     }
+ 
+@@ -712,7 +712,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Reinhard Contrast:")
++                        text: qsTr("ラインハルトのコントラスト：")
+                         visible: Chiaki.settings.placeboToneMappingFunction == PlaceboColorMappingDialog.ToneMappingFunction.Reinhard
+                     }
+ 
+@@ -743,7 +743,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Linear Knee:")
++                        text: qsTr("リニアニー：")
+                         visible: Chiaki.settings.placeboToneMappingFunction == PlaceboColorMappingDialog.ToneMappingFunction.Mobius || Chiaki.settings.placeboToneMappingFunction == PlaceboColorMappingDialog.ToneMappingFunction.Gamma
+                     }
+ 
+@@ -774,7 +774,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Exposure:")
++                        text: qsTr("露出：")
+                         visible: Chiaki.settings.placeboToneMappingFunction == PlaceboColorMappingDialog.ToneMappingFunction.Linear || Chiaki.settings.placeboToneMappingFunction == PlaceboColorMappingDialog.ToneMappingFunction.LinearLight
+                     }
+ 
+@@ -819,41 +819,41 @@
+ 
+                    Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Inverse Tone-mapping Enabled:")
++                        text: qsTr("逆トーンマッピングを有効化：")
+                     }
+ 
+                     C.CheckBox {
+-                        text: qsTr("Enable Inverse Tone-mapping")
++                        text: qsTr("逆トーンマッピングを有効化")
+                         checked: Chiaki.settings.placeboToneMappingInverseToneMappingEnabled
+                         onToggled: Chiaki.settings.placeboToneMappingInverseToneMappingEnabled = checked
+                     }
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Unchecked)")
+-                    }
+-
+-                    Label {
+-                        Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Tone-mapping Metadata:")
++                        text: qsTr("（オフ）")
++                    }
++
++                    Label {
++                        Layout.alignment: Qt.AlignRight
++                        text: qsTr("トーンマッピングのメタデータ：")
+                     }
+ 
+                     C.ComboBox {
+                         Layout.preferredWidth: 400
+                         firstInFocusChain: true
+-                        model: [qsTr("Any"), qsTr("None"), qsTr("HDR10"), qsTr("HDR10 Plus"), qsTr("Cie_y")]
++                        model: [qsTr("すべて"), qsTr("なし"), qsTr("HDR10"), qsTr("HDR10 Plus"), qsTr("Cie_y")]
+                         currentIndex: Chiaki.settings.placeboToneMappingMetadata
+                         onActivated: index => Chiaki.settings.placeboToneMappingMetadata = index
+                     }
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Any)")
+-                    }
+-
+-                    Label {
+-                        Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Tone LUT Size:")
++                        text: qsTr("（すべて）")
++                    }
++
++                    Label {
++                        Layout.alignment: Qt.AlignRight
++                        text: qsTr("トーンLUTサイズ：")
+                     }
+ 
+                     C.Slider {
+@@ -881,7 +881,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Contrast Recovery:")
++                        text: qsTr("コントラスト復元：")
+                     }
+ 
+                     C.Slider {
+@@ -909,7 +909,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Contrast Smoothness:")
++                        text: qsTr("コントラストの滑らかさ：")
+                     }
+ 
+                     C.Slider {
+--- a/gui/src/qml/AutoConnectView.qml
++++ b/gui/src/qml/AutoConnectView.qml
+@@ -21,7 +21,7 @@
+         if(!allowClose)
+             return;
+         view.textVisible = false;
+-        infoLabel.text = qsTr("Cancelling connection...");
++        infoLabel.text = qsTr("接続を中断しています…");
+         failTimer.start();
+     }
+ 
+@@ -44,7 +44,7 @@
+         anchors.centerIn: parent
+         opacity: view.allowClose ? 1.0 : 0.0
+         visible: opacity
+-        text: qsTr("Waiting for console...")
++        text: qsTr("ゲーム機からの応答を待っています…")
+ 
+         Behavior on opacity { NumberAnimation { duration: 250 } }
+     }
+@@ -73,7 +73,7 @@
+             }
+             opacity: textVisible ? 1.0: 0.0
+             visible: opacity
+-            text: qsTr("Press %1 to cancel connection").arg(Chiaki.controllers.length ? (root.controllerButton("circle").includes("deck") ? "B" : "Circle") : "escape or right-click")
++            text: qsTr("%1で接続を中止").arg(Chiaki.controllers.length ? (root.controllerButton("circle").includes("deck") ? "B" : "Circle") : "escape or right-click")
+         }
+     }
+ 
+@@ -98,7 +98,7 @@
+ 
+         function onWakeupStartFailed() {
+             view.textVisible = false;
+-            infoLabel.text = qsTr("Timed out waiting for console. Exiting...");
++            infoLabel.text = qsTr("ゲーム機から応答がないため終了します…");
+             failTimer.start();
+         }
+     }
+--- a/gui/src/qml/StreamView.qml
++++ b/gui/src/qml/StreamView.qml
+@@ -177,16 +177,16 @@
+                     if(Chiaki.settings.dpadTouchEnabled)
+                     {
+                         if(Chiaki.settings.audioVideoDisabled == 0x01)
+-                            qsTr("Audio Disabled in settings\n") + qsTr("Press %1 to open stream menu").arg(Chiaki.controllers.length ? Chiaki.settings.stringForStreamMenuShortcut() : "Ctrl+O") + "\n" + qsTr("Press %1 to toggle between regular dpad and dpad touch").arg(Chiaki.settings.stringForDpadShortcut())
++                            qsTr("Audio Disabled in settings\n") + qsTr("%1でリモートプレイメニューを開く").arg(Chiaki.controllers.length ? Chiaki.settings.stringForStreamMenuShortcut() : "Ctrl+O") + "\n" + qsTr("%1で方向キーの通常操作とタッチ操作を切り替え").arg(Chiaki.settings.stringForDpadShortcut())
+                         else
+-                            qsTr("Press %1 to open stream menu").arg(Chiaki.controllers.length ? Chiaki.settings.stringForStreamMenuShortcut() : "Ctrl+O") + "\n" + qsTr("Press %1 to toggle between regular dpad and dpad touch").arg(Chiaki.settings.stringForDpadShortcut())
++                            qsTr("%1でリモートプレイメニューを開く").arg(Chiaki.controllers.length ? Chiaki.settings.stringForStreamMenuShortcut() : "Ctrl+O") + "\n" + qsTr("%1で方向キーの通常操作とタッチ操作を切り替え").arg(Chiaki.settings.stringForDpadShortcut())
+                     }
+                     else
+                     {
+                         if(Chiaki.settings.audioVideoDisabled == 0x01)
+-                            qsTr("Audio Disabled in settings\n") + qsTr("Press %1 to open stream menu").arg(Chiaki.controllers.length ? Chiaki.settings.stringForStreamMenuShortcut() : "Ctrl+O")
++                            qsTr("Audio Disabled in settings\n") + qsTr("%1でリモートプレイメニューを開く").arg(Chiaki.controllers.length ? Chiaki.settings.stringForStreamMenuShortcut() : "Ctrl+O")
+                         else
+-                            qsTr("Press %1 to open stream menu").arg(Chiaki.controllers.length ? Chiaki.settings.stringForStreamMenuShortcut() : "Ctrl+O")
++                            qsTr("%1でリモートプレイメニューを開く").arg(Chiaki.controllers.length ? Chiaki.settings.stringForStreamMenuShortcut() : "Ctrl+O")
+                     }
+                 }
+                 visible: sessionLoading
+@@ -198,7 +198,7 @@
+                     bottom: spinner.top
+                     horizontalCenter: spinner.horizontalCenter
+                 }
+-                text: (Chiaki.settings.audioVideoDisabled & 0x01) ? qsTr("Audio and Video Disabled") : qsTr("Video Disabled")
++                text: (Chiaki.settings.audioVideoDisabled & 0x01) ? qsTr("音声・映像を無効化") : qsTr("映像は無効です")
+                 font.pixelSize: 24
+                 visible: !sessionLoading && !sessionError && (Chiaki.settings.audioVideoDisabled & 0x02)
+             }
+@@ -212,7 +212,7 @@
+                 }
+                 horizontalAlignment: Text.AlignHCenter
+                 font.pixelSize: 20
+-                text: (Chiaki.settings.audioVideoDisabled & 0x01) ? qsTr("You have disabled audio and video in your settings.\nTo re-enable change Audio/Video to Audio and Video Enabled in the General tab of the settings.") : qsTr("You have disabled video in your settings.\nTo re-enable change Audio/Video to Audio and Video Enabled in the General tab of the settings.")
++                text: (Chiaki.settings.audioVideoDisabled & 0x01) ? qsTr("設定で音声と映像が無効になっています。\n「設定」→「一般」の「音声・映像」を有効化してください。") : qsTr("設定で映像が無効になっています。\n「設定」→「一般」の「音声・映像」を有効化してください。")
+                 visible: !sessionLoading && !sessionError && (Chiaki.settings.audioVideoDisabled & 0x02)
+             }
+ 
+@@ -263,14 +263,14 @@
+ 
+         Label {
+             Layout.alignment: Qt.AlignCenter
+-            text: qsTr("The screen contains content that can't be displayed using Remote Play.")
++            text: qsTr("この画面はリモートプレイでは表示できません。")
+         }
+ 
+         Button {
+             id: goToHomeButton
+             Layout.alignment: Qt.AlignCenter
+             Layout.preferredHeight: 60
+-            text: qsTr("Go to Home Screen")
++            text: qsTr("ホーム画面へ戻る")
+             Material.background: activeFocus ? parent.Material.accent : undefined
+             Material.roundedScale: Material.SmallScale
+             onClicked: Chiaki.sessionGoHome()
+@@ -336,7 +336,7 @@
+ 
+                 Label {
+                     Layout.alignment: Qt.AlignRight
+-                    text: qsTr("queue depth avg")
++                    text: qsTr("平均キュー深度")
+                     font.pixelSize: 15
+                     opacity: Chiaki.session ? 1 : 0
+                     visible: opacity > 0
+@@ -358,7 +358,7 @@
+ 
+                 Label {
+                     Layout.alignment: Qt.AlignRight
+-                    text: qsTr("pending frame age")
++                    text: qsTr("待機フレーム時間")
+                     font.pixelSize: 15
+                     opacity: Chiaki.session ? 1 : 0
+                     visible: opacity > 0
+@@ -381,7 +381,7 @@
+                 Label {
+                     Layout.alignment: Qt.AlignRight
+                     id: statsPacketLossLabel
+-                    text: qsTr("packet loss")
++                    text: qsTr("パケット損失")
+                     font.pixelSize: 15
+                     opacity: Chiaki.session ? 1 : 0
+                     visible: opacity > 0
+@@ -426,7 +426,7 @@
+ 
+                 Label {
+                     Layout.alignment: Qt.AlignRight
+-                    text: qsTr("lost frames")
++                    text: qsTr("欠損フレーム")
+                     font.pixelSize: 15
+                     opacity: Chiaki.session ? 1 : 0
+                     visible: opacity > 0
+@@ -537,7 +537,7 @@
+             ToolButton {
+                 id: muteButton
+                 Layout.rightMargin: 20
+-                text: qsTr("Mic")
++                text: qsTr("マイク")
+                 padding: 10
+                 checkable: true
+                 enabled: Chiaki.session && Chiaki.session.connected
+@@ -551,7 +551,7 @@
+ 
+             ToolButton {
+                 id: zoomButton
+-                text: qsTr("Zoom")
++                text: qsTr("ズーム")
+                 padding: 10
+                 checkable: true
+                 checked: Chiaki.window.videoMode == ChiakiWindow.VideoMode.Zoom
+@@ -588,7 +588,7 @@
+                     }
+                     text: {
+                         if(parent.value === -1)
+-                            qsTr("No Black Bars")
++                            qsTr("黒帯なし")
+                         else if(parent.value >= 0)
+                             qsTr((parent.value + 1).toFixed(2)) + qsTr(" x")
+                         else
+@@ -606,7 +606,7 @@
+             ToolButton {
+                 id: stretchButton
+                 Layout.rightMargin: 50
+-                text: qsTr("Stretch")
++                text: qsTr("引き伸ばし")
+                 padding: 10
+                 checkable: true
+                 checked: Chiaki.window.videoMode == ChiakiWindow.VideoMode.Stretch
+@@ -624,7 +624,7 @@
+ 
+             ToolButton {
+                 id: defaultButton
+-                text: qsTr("Default")
++                text: qsTr("標準")
+                 padding: 10
+                 checkable: true
+                 checked: Chiaki.window.videoPreset == ChiakiWindow.VideoPreset.Default
+@@ -645,7 +645,7 @@
+ 
+             ToolButton {
+                 id: highQualityButton
+-                text: qsTr("High Quality")
++                text: qsTr("高画質")
+                 padding: 10
+                 checkable: true
+                 checked: Chiaki.window.videoPreset == ChiakiWindow.VideoPreset.HighQuality
+@@ -661,7 +661,7 @@
+ 
+             ToolButton {
+                 id: highQualitySpatialButton
+-                text: qsTr("HQ + Spatial")
++                text: qsTr("高画質＋空間処理")
+                 padding: 10
+                 checkable: true
+                 checked: Chiaki.window.videoPreset == ChiakiWindow.VideoPreset.HighQualitySpatial
+@@ -677,7 +677,7 @@
+ 
+             ToolButton {
+                 id: highQualityAdvancedSpatialButton
+-                text: qsTr("HQ + Adv Spatial")
++                text: qsTr("高画質＋高度な空間処理")
+                 padding: 10
+                 checkable: true
+                 checked: Chiaki.window.videoPreset == ChiakiWindow.VideoPreset.HighQualityAdvancedSpatial
+@@ -698,7 +698,7 @@
+ 
+             ToolButton {
+                 id: customButton
+-                text: qsTr("Custom")
++                text: qsTr("カスタム")
+                 Layout.rightMargin: 40
+                 padding: 10
+                 checkable: true
+@@ -715,7 +715,7 @@
+ 
+             ToolButton {
+                 id: displaySettingsButton
+-                text: qsTr("Display")
++                text: qsTr("表示")
+                 padding: 10
+                 checkable: false
+                 icon.source: "qrc:/icons/settings-20px.svg";
+@@ -786,8 +786,8 @@
+                     if (!Chiaki.session)
+                         return "";
+                     if (Chiaki.session.connected)
+-                        return qsTr("Connected to <b>%1</b>").arg(Chiaki.settings.streamerMode ? "hidden" : Chiaki.session.host);
+-                    return qsTr("Connecting to <b>%1</b>").arg(Chiaki.settings.streamerMode ? "hidden" : Chiaki.session.host);
++                        return qsTr("<b>%1</b>に接続しました").arg(Chiaki.settings.streamerMode ? "hidden" : Chiaki.session.host);
++                    return qsTr("<b>%1</b>に接続しています").arg(Chiaki.settings.streamerMode ? "hidden" : Chiaki.session.host);
+                 }
+ 
+                 RowLayout {
+@@ -798,7 +798,7 @@
+                     }
+ 
+                     Label {
+-                        text: qsTr("packet loss")
++                        text: qsTr("パケット損失")
+                         font.pixelSize: 15
+                         opacity: parent.visible && Chiaki.session ? 1.0 : 0.0
+                         visible: opacity
+@@ -933,7 +933,7 @@
+         ColumnLayout {
+             Label {
+                 Layout.alignment: Qt.AlignCenter
+-                text: qsTr("Disconnect Session")
++                text: qsTr("接続を終了")
+                 font.bold: true
+                 font.pixelSize: 24
+             }
+@@ -941,7 +941,7 @@
+             Label {
+                 Layout.topMargin: 10
+                 Layout.alignment: Qt.AlignCenter
+-                text: qsTr("Do you want the Console to go into sleep mode?")
++                text: qsTr("ゲーム機をスリープモードにしますか？")
+                 font.pixelSize: 20
+             }
+ 
+@@ -955,7 +955,7 @@
+                     Layout.preferredWidth: 200
+                     Layout.minimumHeight: 80
+                     Layout.maximumHeight: 80
+-                    text: qsTr("Sleep")
++                    text: qsTr("スリープ")
+                     font.pixelSize: 24
+                     Material.roundedScale: Material.SmallScale
+                     Material.background: activeFocus ? parent.Material.accent : undefined
+@@ -974,7 +974,7 @@
+                     Layout.preferredWidth: 200
+                     Layout.minimumHeight: 80
+                     Layout.maximumHeight: 80
+-                    text: qsTr("No")
++                    text: qsTr("いいえ")
+                     font.pixelSize: 24
+                     Material.roundedScale: Material.SmallScale
+                     Material.background: activeFocus ? parent.Material.accent : undefined
+@@ -1032,7 +1032,7 @@
+ 
+             Label {
+                 Layout.alignment: Qt.AlignCenter
+-                text: qsTr("Disconnect Session")
++                text: qsTr("接続を終了")
+                 font.bold: true
+                 font.pixelSize: 24
+             }
+@@ -1040,7 +1040,7 @@
+             Label {
+                 Layout.topMargin: 10
+                 Layout.alignment: Qt.AlignCenter
+-                text: qsTr("Do you want the Console to go into sleep mode?")
++                text: qsTr("ゲーム機をスリープモードにしますか？")
+                 font.pixelSize: 20
+             }
+ 
+@@ -1054,7 +1054,7 @@
+                     Layout.preferredWidth: 200
+                     Layout.minimumHeight: 80
+                     Layout.maximumHeight: 80
+-                    text: qsTr("Sleep")
++                    text: qsTr("スリープ")
+                     font.pixelSize: 24
+                     Material.roundedScale: Material.SmallScale
+                     Material.background: activeFocus ? parent.Material.accent : undefined
+@@ -1072,7 +1072,7 @@
+                     Layout.preferredWidth: 200
+                     Layout.minimumHeight: 80
+                     Layout.maximumHeight: 80
+-                    text: qsTr("No")
++                    text: qsTr("いいえ")
+                     font.pixelSize: 24
+                     Material.roundedScale: Material.SmallScale
+                     Material.background: activeFocus ? parent.Material.accent : undefined
+@@ -1093,7 +1093,7 @@
+         parent: Overlay.overlay
+         x: Math.round((root.width - width) / 2)
+         y: Math.round((root.height - height) / 2)
+-        title: qsTr("Console Login PIN")
++        title: qsTr("ゲーム機のログインPIN")
+         modal: true
+         closePolicy: Popup.NoAutoClose
+         standardButtons: Dialog.Ok | Dialog.Cancel
+@@ -1168,7 +1168,7 @@
+ 
+             Label {
+                 Layout.alignment: Qt.AlignCenter
+-                text: qsTr("Console Login PIN")
++                text: qsTr("ゲーム機のログインPIN")
+                 font.bold: true
+                 font.pixelSize: 24
+             }
+@@ -1189,7 +1189,7 @@
+                 spacing: 16
+ 
+                 Button {
+-                    text: qsTr("Cancel")
++                    text: qsTr("キャンセル")
+                     Keys.onReturnPressed: clicked()
+                     onClicked: {
+                         separateSessionPinWindow.visible = false;
+--- a/gui/src/qml/ProfileDialog.qml
++++ b/gui/src/qml/ProfileDialog.qml
+@@ -11,17 +11,20 @@
+ 
+     buttonText: {
+         if(deleteBox.visible && deleteBox.checked)
+-            qsTr("Delete Profile")
++            qsTr("アカウントを削除")
+         else if(profileName.visible)
+-            qsTr("Create Profile")
++            qsTr("アカウントを追加")
+         else
+-            qsTr("Switch Profile")
++            qsTr("アカウントを切り替える")
+     }
+     buttonEnabled: {
+         if(deleteBox.visible && deleteBox.checked)
+             true
+         else if(profileName.visible)
+-            profileName.text.trim();
++            profileName.text.trim().length > 0
++                && profileName.text.trim() !== "default"
++                && profileName.text.trim() !== "create new profile"
++                && !Chiaki.settings.profiles.includes(profileName.text.trim());
+         else
+             !(profileComboBox.model[profileComboBox.currentIndex] == "default" && Chiaki.settings.currentProfile == "") && profileComboBox.model[profileComboBox.currentIndex] != Chiaki.settings.currentProfile
+     }
+@@ -48,8 +51,15 @@
+             columnSpacing: 20
+ 
+             Label {
++                Layout.columnSpan: 2
++                Layout.maximumWidth: 550
++                wrapMode: Text.WordWrap
++                text: qsTr("アカウントごとにPSN認証情報とゲーム機の登録情報を別々に保存します。切り替え後、必要に応じてゲーム機を登録してください。")
++            }
++
++            Label {
+                 Layout.alignment: Qt.AlignRight
+-                text: qsTr("User Profile:")
++                text: qsTr("アカウント：")
+             }
+ 
+             C.ComboBox {
+@@ -57,12 +67,22 @@
+                 Layout.preferredWidth: 400
+                 firstInFocusChain: true
+                 model: Chiaki.settings.profiles
+-                currentIndex: Math.max(0, model.indexOf(Chiaki.settings.currentProfile))
++                displayText: model[currentIndex] === "default" ? qsTr("標準")
++                             : model[currentIndex] === "create new profile" ? qsTr("＋ アカウントを追加")
++                             : model[currentIndex]
++                delegate: ItemDelegate {
++                    width: profileComboBox.width
++                    text: modelData === "default" ? qsTr("標準")
++                          : modelData === "create new profile" ? qsTr("＋ アカウントを追加")
++                          : modelData
++                    highlighted: profileComboBox.highlightedIndex === index
++                }
++                currentIndex: Math.max(0, model.indexOf(Chiaki.settings.currentProfile || "default"))
+                 lastInFocusChain: model[currentIndex] == "default" || model[currentIndex] == Chiaki.settings.currentProfile
+             }
+ 
+             Label {
+-                text: qsTr("New Profile Name")
++                text: qsTr("新しいアカウント名")
+                 visible: profileComboBox.currentIndex == profileComboBox.model.indexOf("create new profile")
+             }
+ 
+@@ -74,7 +94,7 @@
+             }
+ 
+             Label {
+-                text: qsTr("Delete selected profile")
++                text: qsTr("選択したアカウントを削除する")
+                 visible: profileComboBox.model[profileComboBox.currentIndex] != "default" && profileComboBox.model[profileComboBox.currentIndex] != "create new profile" && profileComboBox.model[profileComboBox.currentIndex] != Chiaki.settings.currentProfile
+             }
+ 
+--- a/gui/src/qml/RemindDialog.qml
++++ b/gui/src/qml/RemindDialog.qml
+@@ -37,7 +37,7 @@
+         if(!remotePlay && Chiaki.settings.remotePlayAsk)
+         {
+             if(!Chiaki.settings.psnRefreshToken || !Chiaki.settings.psnAuthToken || !Chiaki.settings.psnAuthTokenExpiry || !Chiaki.settings.psnAccountId)
+-                root.showRemindDialog(qsTr("Remote Play via PSN"), qsTr("Would you like to connect to PSN?\nThis enables:\n- Automatic registration\n- Playing outside of your home network without port forwarding?") + "\n\n" + qsTr("(Note: If you select no now and want to do this later, go to the Config section of the settings.)"), true, () => root.showPSNTokenDialog(false));
++                root.showRemindDialog(qsTr("PSN経由のリモートプレイ"), qsTr("PSNへ接続しますか？\n接続すると、次の機能を利用できます。\n・自動登録\n・ポート開放せずに外出先からプレイ") + "\n\n" + qsTr("（後で設定する場合は「設定」→「設定」タブを開いてください）"), true, () => root.showPSNTokenDialog(false));
+             else
+                 Chiaki.settings.remotePlayAsk = false;
+         }
+@@ -70,7 +70,7 @@
+             spacing: 20
+ 
+             Button {
+-                text: qsTr("Yes")
++                text: qsTr("はい")
+                 Material.background: Material.accent
+                 flat: true
+                 leftPadding: 50
+@@ -92,7 +92,7 @@
+ 
+             Button {
+                 Material.background: Material.accent
+-                text: qsTr("No")
++                text: qsTr("いいえ")
+                 flat: true
+                 leftPadding: 50
+                 onClicked: dialog.reject()
+@@ -113,7 +113,7 @@
+ 
+             Button {
+                 Material.background: Material.accent
+-                text: qsTr("Remind Me Later")
++                text: qsTr("後で通知")
+                 flat: true
+                 leftPadding: 50
+                 onClicked: dialog.close()
+--- a/gui/src/qml/Main.qml
++++ b/gui/src/qml/Main.qml
+@@ -168,8 +168,8 @@
+     }
+ 
+     function showRendererFallbackDialog(reason) {
+-        showInfoDialog(qsTr("Renderer Fallback"),
+-                       qsTr("Vulkan renderer is unavailable and chiaki-ng switched to OpenGL.\n\nReason: %1").arg(reason));
++        showInfoDialog(qsTr("描画方式の自動切り替え"),
++                       qsTr("Vulkanレンダラーを利用できないため、OpenGLへ切り替えました。\n\n理由：%1").arg(reason));
+     }
+ 
+     function showRemindDialog(title, text, remotePlay, callback) {
+@@ -551,9 +551,9 @@
+             else
+             {
+                 if(ps5)
+-                    root.showConfirmDialog(qsTr("Registration Type"), qsTr("Would you like to use automatic registration?"), () => root.autoRegister(true, host, ps5), () => root.autoRegister(false, host, ps5))
++                    root.showConfirmDialog(qsTr("登録方法"), qsTr("自動登録を使用しますか？"), () => root.autoRegister(true, host, ps5), () => root.autoRegister(false, host, ps5))
+                 else
+-                    root.showConfirmDialog(qsTr("Registration Type"), qsTr("Would you like to use automatic registration (must be main PS4 console registered to your PSN)?"), () => root.autoRegister(true, host, ps5), () => root.autoRegister(false, host, ps5))
++                    root.showConfirmDialog(qsTr("登録方法"), qsTr("自動登録を使用しますか？（PSNに登録されたメインのPS4である必要があります）"), () => root.autoRegister(true, host, ps5), () => root.autoRegister(false, host, ps5))
+             }
+         }
+ 
+--- a/gui/src/qml/PSNTokenDialog.qml
++++ b/gui/src/qml/PSNTokenDialog.qml
+@@ -14,11 +14,11 @@
+     property bool closing: false
+     title: {
+         if(expired)
+-            qsTr("Credentials Expired: Refresh PSN Remote Connection")
++            qsTr("認証情報の有効期限切れ：PSNリモート接続を更新してください")
+         else
+-            qsTr("Setup Automatic PSN Remote Connection")
++            qsTr("PSN経由の自動リモート接続を設定")
+     }
+-    buttonText: qsTr("Setup")
++    buttonText: qsTr("設定する")
+     buttonEnabled: url.text.trim()
+     buttonVisible: false
+     onAccepted: {
+@@ -94,7 +94,7 @@
+                         Layout.fillHeight: true
+                         Layout.preferredWidth: 350
+                         flat: true
+-                        text: "reload + clear cookies"
++                        text: qsTr("再読み込み＋Cookie削除")
+                         Image {
+                             anchors {
+                                 left: parent.left
+@@ -137,7 +137,7 @@
+                             source: "qrc:/icons/r1.svg"
+                         }
+                         focusPolicy: Qt.NoFocus
+-                        text: "Use external browser"
++                        text: qsTr("外部ブラウザを使用")
+                         onClicked: {
+                             nativeTokenForm.visible = false;
+                             psnTokenToolbar.visible = false;
+@@ -189,7 +189,7 @@
+                 columnSpacing: 20
+                 Label {
+                     id: nativeErrorHeader
+-                    text: "Retrieving PSN account ID failed with error: "
++                    text: qsTr("PSNアカウントIDの取得に失敗：")
+                     Layout.fillHeight: true
+                     Layout.preferredWidth: 400
+                     Layout.leftMargin: 20
+@@ -204,7 +204,7 @@
+ 
+                 Label {
+                     id: retryButton
+-                    text: "Retry process"
++                    text: qsTr("最初からやり直す")
+                     Layout.fillHeight: true
+                     Layout.preferredWidth: 300
+                     Layout.leftMargin: 20
+@@ -212,7 +212,7 @@
+                 C.Button {
+                     firstInFocusChain: true
+                     lastInFocusChain: true
+-                    text: "Retry"
++                    text: qsTr("再試行")
+                     onClicked: {
+                         nativeErrorGrid.visible = false;
+                         nativeErrorLabel.text = "";
+@@ -303,7 +303,7 @@
+             columnSpacing: 20
+ 
+             Label {
+-                text: qsTr("Open Web Browser with copied URL")
++                text: qsTr("コピーしたURLをブラウザで開く")
+                 visible: psnurl
+             }
+ 
+@@ -317,7 +317,7 @@
+ 
+             C.Button {
+                 id: copyUrl
+-                text: qsTr("Click to Re-Copy URL")
++                text: qsTr("URLを再コピー")
+                 onClicked: {
+                     openurl.selectAll()
+                     openurl.copy()
+@@ -329,7 +329,7 @@
+             }
+ 
+             Label {
+-                text: qsTr("Redirect URL from Web Browser")
++                text: qsTr("ブラウザから戻ったURL")
+             }
+ 
+             TextField {
+@@ -352,7 +352,7 @@
+                 KeyNavigation.right: pasteUrl
+                 C.Button {
+                     id: pasteUrl
+-                    text: qsTr("Click to Paste URL")
++                    text: qsTr("URLを貼り付け")
+                     anchors {
+                         left: parent.right
+                         verticalCenter: parent.verticalCenter
+@@ -378,7 +378,7 @@
+                 parent: Overlay.overlay
+                 x: Math.round((root.width - width) / 2)
+                 y: Math.round((root.height - height) / 2)
+-                title: qsTr("Create PSN Automatic Remote Connection Token")
++                title: qsTr("PSN自動リモート接続用トークンを作成")
+                 modal: true
+                 closePolicy: Popup.NoAutoClose
+                 standardButtons: Dialog.Cancel
+--- a/gui/src/qml/ConfirmDialog.qml
++++ b/gui/src/qml/ConfirmDialog.qml
+@@ -59,7 +59,7 @@
+             spacing: 20
+ 
+             Button {
+-                text: qsTr("Yes")
++                text: qsTr("はい")
+                 Material.background: Material.accent
+                 flat: true
+                 leftPadding: 50
+@@ -81,7 +81,7 @@
+ 
+             Button {
+                 Material.background: Material.accent
+-                text: qsTr("No")
++                text: qsTr("いいえ")
+                 flat: true
+                 leftPadding: 50
+                 onClicked: dialog.reject()
+--- a/gui/src/qml/SteamShortcutDialog.qml
++++ b/gui/src/qml/SteamShortcutDialog.qml
+@@ -12,15 +12,15 @@
+     property bool opening: false
+     property bool succeeded: false
+     property bool fromReminder
+-    title: qsTr("Create Non-Steam Game")
+-    buttonText: qsTr("Create")
++    title: qsTr("非Steamゲームを作成")
++    buttonText: qsTr("作成")
+     buttonEnabled: name.text.trim() && !opening
+     function close() {
+         root.closeDialog();
+         if(dialog.fromReminder && Chiaki.settings.remotePlayAsk)
+         {
+             if(!Chiaki.settings.psnRefreshToken || !Chiaki.settings.psnAuthToken || !Chiaki.settings.psnAuthTokenExpiry || !Chiaki.settings.psnAccountId)
+-                root.showRemindDialog(qsTr("Remote Play via PSN"), qsTr("Would you like to connect to PSN?\nThis enables:\n- Automatic registration\n- Playing outside of your home network without port forwarding?") + "\n\n" + qsTr("(Note: If you select no now and want to do this later, go to the Config section of the settings.)"), true, () => root.showPSNTokenDialog(false));
++                root.showRemindDialog(qsTr("PSN経由のリモートプレイ"), qsTr("PSNへ接続しますか？\n接続すると、次の機能を利用できます。\n・自動登録\n・ポート開放せずに外出先からプレイ") + "\n\n" + qsTr("（後で設定する場合は「設定」→「設定」タブを開いてください）"), true, () => root.showPSNTokenDialog(false));
+             else
+                 Chiaki.settings.remotePlayAsk = false;
+         }
+@@ -60,7 +60,7 @@
+ 
+             Label {
+                 Layout.alignment: Qt.AlignRight
+-                text: qsTr("Steam Game Name")
++                text: qsTr("Steamゲーム名")
+             }
+ 
+             C.TextField {
+@@ -83,7 +83,7 @@
+ 
+             Label {
+                 Layout.alignment: Qt.AlignRight
+-                text: qsTr("Custom Steam Base Path (Optional)")
++                text: qsTr("Steam保存先（任意）")
+             }
+ 
+             Label {
+@@ -97,7 +97,7 @@
+ 
+             C.Button {
+                 id: choosePathButton
+-                text: qsTr("Choose new steam base path")
++                text: qsTr("Steamの保存先を選択")
+                 onClicked: {
+                     shortcutGrid.steamBasePath = Chiaki.settings.chooseSteamBasePath();
+                 }
+@@ -111,7 +111,7 @@
+                 parent: Overlay.overlay
+                 x: Math.round((root.width - width) / 2)
+                 y: Math.round((root.height - height) / 2)
+-                title: qsTr("Create non-Steam game")
++                title: qsTr("非Steamゲームを作成")
+                 modal: true
+                 closePolicy: Popup.NoAutoClose
+                 standardButtons: Dialog.Cancel
+@@ -164,7 +164,7 @@
+             parent: Overlay.overlay
+             x: Math.round((root.width - width) / 2)
+             y: Math.round((root.height - height) / 2)
+-            title: qsTr("Please Restart Steam")
++            title: qsTr("Steamを再起動してください")
+             modal: true
+             closePolicy: Popup.NoAutoClose
+             standardButtons: Dialog.Close
+--- a/gui/src/qml/PSNLoginDialog.qml
++++ b/gui/src/qml/PSNLoginDialog.qml
+@@ -14,9 +14,9 @@
+     property bool submitting: false
+     property bool closing: false
+     property var psnurl: ""
+-    title: qsTr("PSN Login")
++    title: qsTr("PSNにログイン")
+     buttonVisible: false
+-    buttonText: qsTr("Get Account ID")
++    buttonText: qsTr("アカウントIDを取得")
+     buttonEnabled: !submitting && url.text.trim()
+     onAccepted: {
+         submitting = true;
+@@ -90,7 +90,7 @@
+                         Layout.fillHeight: true
+                         Layout.preferredWidth: 350
+                         flat: true
+-                        text: "reload + clear cookies"
++                        text: qsTr("再読み込み＋Cookie削除")
+                         Image {
+                             anchors {
+                                 left: parent.left
+@@ -133,7 +133,7 @@
+                             source: "qrc:/icons/r1.svg"
+                         }
+                         focusPolicy: Qt.NoFocus
+-                        text: "Use external browser"
++                        text: qsTr("外部ブラウザを使用")
+                         onClicked: {
+                             nativeLoginForm.visible = false;
+                             psnLoginToolbar.visible = false;
+@@ -185,7 +185,7 @@
+                 columnSpacing: 20
+                 Label {
+                     id: nativeErrorHeader
+-                    text: "Retrieving PSN account ID failed with error: "
++                    text: qsTr("PSNアカウントIDの取得に失敗：")
+                     Layout.fillHeight: true
+                     Layout.preferredWidth: 400
+                     Layout.leftMargin: 20
+@@ -200,7 +200,7 @@
+ 
+                 Label {
+                     id: retryButton
+-                    text: "Retry process"
++                    text: qsTr("最初からやり直す")
+                     Layout.fillHeight: true
+                     Layout.preferredWidth: 300
+                     Layout.leftMargin: 20
+@@ -208,7 +208,7 @@
+                 C.Button {
+                     firstInFocusChain: true
+                     lastInFocusChain: true
+-                    text: "Retry"
++                    text: qsTr("再試行")
+                     onClicked: {
+                         nativeErrorGrid.visible = false;
+                         nativeErrorLabel.text = "";
+@@ -289,7 +289,7 @@
+             Label {
+                 id: errorHeader
+                 visible: false
+-                text: "Retrieving PSN account ID failed with error"
++                text: qsTr("PSNアカウントIDの取得に失敗しました")
+             }
+ 
+             Label {
+@@ -298,7 +298,7 @@
+             }
+ 
+             Label {
+-                text: qsTr("Open Web Browser with copied URL")
++                text: qsTr("コピーしたURLをブラウザで開く")
+                 visible: psnurl
+             }
+ 
+@@ -312,7 +312,7 @@
+ 
+             C.Button {
+                 id: copyUrl
+-                text: qsTr("Click to Re-Copy URL")
++                text: qsTr("URLを再コピー")
+                 onClicked: {
+                     openurl.selectAll()
+                     openurl.copy()
+@@ -324,7 +324,7 @@
+             }
+ 
+             Label {
+-                text: qsTr("Redirect URL from Web Browser")
++                text: qsTr("ブラウザから戻ったURL")
+             }
+ 
+             TextField {
+@@ -347,7 +347,7 @@
+                 KeyNavigation.right: pasteUrl
+                 C.Button {
+                     id: pasteUrl
+-                    text: qsTr("Click to Paste URL")
++                    text: qsTr("URLを貼り付け")
+                     anchors {
+                         left: parent.right
+                         verticalCenter: parent.verticalCenter
+@@ -381,7 +381,7 @@
+                 id: formLabel
+                 Layout.alignment: Qt.AlignCenter
+                 Layout.bottomMargin: 50
+-                text: qsTr("This requires your PSN privacy settings to allow anyone to find you in your search")
++                text: qsTr("PSNのプライバシー設定で誰でも検索できる状態にする必要があります")
+             }
+ 
+             C.TextField {
+@@ -390,7 +390,7 @@
+                 Layout.preferredWidth: 400
+                 Layout.alignment: Qt.AlignCenter
+                 firstInFocusChain: true
+-                placeholderText: qsTr("Username")
++                placeholderText: qsTr("ユーザー名")
+                 onAccepted: submitButton.clicked()
+             }
+ 
+@@ -399,7 +399,7 @@
+                 Layout.preferredWidth: 400
+                 Layout.alignment: Qt.AlignCenter
+                 lastInFocusChain: true
+-                text: qsTr("Submit")
++                text: qsTr("送信")
+                 onClicked: {
+                     const username = usernameField.text.trim();
+                     if (!username.length || !enabled)
+@@ -414,7 +414,7 @@
+                                 dialog.close();
+                             } else {
+                                 enabled = true;
+-                                formLabel.text = qsTr("Error: %1!").arg(response["error"]);
++                                formLabel.text = qsTr("エラー：%1！").arg(response["error"]);
+                             }
+                         }
+                     }
+--- a/gui/src/qml/StreamMenuWindow.qml
++++ b/gui/src/qml/StreamMenuWindow.qml
+@@ -149,7 +149,7 @@
+             ToolButton {
+                 id: muteButton
+                 Layout.rightMargin: 20
+-                text: qsTr("Mic")
++                text: qsTr("マイク")
+                 padding: 10
+                 checkable: true
+                 enabled: Chiaki.session && Chiaki.session.connected
+@@ -163,7 +163,7 @@
+ 
+             ToolButton {
+                 id: zoomButton
+-                text: qsTr("Zoom")
++                text: qsTr("ズーム")
+                 padding: 10
+                 checkable: true
+                 checked: Chiaki.window.videoMode == ChiakiWindow.VideoMode.Zoom
+@@ -196,7 +196,7 @@
+                     }
+                     text: {
+                         if (parent.value === -1)
+-                            return qsTr("No Black Bars");
++                            return qsTr("黒帯なし");
+                         if (parent.value >= 0)
+                             return qsTr((parent.value + 1).toFixed(2)) + qsTr(" x");
+                         return qsTr(parent.value.toFixed(2)) + qsTr(" x");
+@@ -212,7 +212,7 @@
+             ToolButton {
+                 id: stretchButton
+                 Layout.rightMargin: 50
+-                text: qsTr("Stretch")
++                text: qsTr("引き伸ばし")
+                 padding: 10
+                 checkable: true
+                 checked: Chiaki.window.videoMode == ChiakiWindow.VideoMode.Stretch
+@@ -225,7 +225,7 @@
+ 
+             ToolButton {
+                 id: defaultButton
+-                text: qsTr("Default")
++                text: qsTr("標準")
+                 padding: 10
+                 checkable: true
+                 checked: Chiaki.window.videoPreset == ChiakiWindow.VideoPreset.Default
+@@ -246,7 +246,7 @@
+ 
+             ToolButton {
+                 id: highQualityButton
+-                text: qsTr("High Quality")
++                text: qsTr("高画質")
+                 padding: 10
+                 checkable: true
+                 checked: Chiaki.window.videoPreset == ChiakiWindow.VideoPreset.HighQuality
+@@ -262,7 +262,7 @@
+ 
+             ToolButton {
+                 id: highQualitySpatialButton
+-                text: qsTr("HQ + Spatial")
++                text: qsTr("高画質＋空間処理")
+                 padding: 10
+                 checkable: true
+                 checked: Chiaki.window.videoPreset == ChiakiWindow.VideoPreset.HighQualitySpatial
+@@ -278,7 +278,7 @@
+ 
+             ToolButton {
+                 id: highQualityAdvancedSpatialButton
+-                text: qsTr("HQ + Adv Spatial")
++                text: qsTr("高画質＋高度な空間処理")
+                 padding: 10
+                 checkable: true
+                 checked: Chiaki.window.videoPreset == ChiakiWindow.VideoPreset.HighQualityAdvancedSpatial
+@@ -299,7 +299,7 @@
+ 
+             ToolButton {
+                 id: customButton
+-                text: qsTr("Custom")
++                text: qsTr("カスタム")
+                 Layout.rightMargin: 40
+                 padding: 10
+                 checkable: true
+@@ -316,7 +316,7 @@
+ 
+             ToolButton {
+                 id: displaySettingsButton
+-                text: qsTr("Display")
++                text: qsTr("表示")
+                 padding: 10
+                 checkable: false
+                 icon.source: "qrc:/icons/settings-20px.svg"
+@@ -375,8 +375,8 @@
+                 if (!Chiaki.session)
+                     return "";
+                 if (Chiaki.session.connected)
+-                    return qsTr("Connected to <b>%1</b>").arg(Chiaki.settings.streamerMode ? "hidden" : Chiaki.session.host);
+-                return qsTr("Connecting to <b>%1</b>").arg(Chiaki.settings.streamerMode ? "hidden" : Chiaki.session.host);
++                    return qsTr("<b>%1</b>に接続しました").arg(Chiaki.settings.streamerMode ? "hidden" : Chiaki.session.host);
++                return qsTr("<b>%1</b>に接続しています").arg(Chiaki.settings.streamerMode ? "hidden" : Chiaki.session.host);
+             }
+ 
+             RowLayout {
+@@ -387,7 +387,7 @@
+                 }
+ 
+                 Label {
+-                    text: qsTr("packet loss")
++                    text: qsTr("パケット損失")
+                     font.pixelSize: 15
+                     opacity: parent.visible && Chiaki.session ? 1.0 : 0.0
+                     visible: opacity
+--- a/gui/src/qml/SettingsDialog.qml
++++ b/gui/src/qml/SettingsDialog.qml
+@@ -17,8 +17,8 @@
+     property int selectedConsole: SettingsDialog.Console.PS5
+     property bool quitControllerMapping: true
+     id: dialog
+-    title: qsTr("Settings")
+-    header: qsTr("* Defaults in () to right of value or marked with (Default)")
++    title: qsTr("設定")
++    header: qsTr("括弧内の値、または「標準」は初期値を表します")
+     buttonVisible: false
+     function flickContainsItem(flick, item) {
+         let current = item;
+@@ -175,7 +175,7 @@
+             }
+             TabButton {
+                 id: general
+-                text: qsTr("General")
++                text: qsTr("一般")
+                 focusPolicy: Qt.NoFocus
+                 Image {
+                     anchors {
+@@ -193,7 +193,7 @@
+ 
+             TabButton {
+                 id: video
+-                text: qsTr("Video")
++                text: qsTr("映像")
+                 focusPolicy: Qt.NoFocus
+                 Image {
+                     anchors {
+@@ -223,7 +223,7 @@
+ 
+             TabButton {
+                 id: stream
+-                text: qsTr("Stream")
++                text: qsTr("リモートプレイ")
+                 focusPolicy: Qt.NoFocus
+                 Image {
+                     anchors {
+@@ -252,7 +252,7 @@
+             }
+ 
+             TabButton {
+-                text: qsTr("Audio/Wifi")
++                text: qsTr("音声・Wi-Fi")
+                 id: audio
+                 focusPolicy: Qt.NoFocus
+                 Image {
+@@ -282,7 +282,7 @@
+             }
+ 
+             TabButton {
+-                text: qsTr("Consoles")
++                text: qsTr("ゲーム機")
+                 id: consoles
+                 focusPolicy: Qt.NoFocus
+                 Image {
+@@ -312,7 +312,7 @@
+             }
+ 
+             TabButton {
+-                text: qsTr("Keys")
++                text: qsTr("キー")
+                 id: keys
+                 focusPolicy: Qt.NoFocus
+                 Image {
+@@ -342,7 +342,7 @@
+             }
+ 
+             TabButton {
+-                text: qsTr("Controllers")
++                text: qsTr("コントローラー")
+                 id: controllers
+                 focusPolicy: Qt.NoFocus
+                 Image {
+@@ -372,7 +372,7 @@
+             }
+ 
+             TabButton {
+-                text: qsTr("Remote")
++                text: qsTr("リモート")
+                 id: remote
+                 focusPolicy: Qt.NoFocus
+                 Image {
+@@ -402,7 +402,7 @@
+             }
+ 
+             TabButton {
+-                text: qsTr("Config")
++                text: qsTr("設定")
+                 id: config
+                 focusPolicy: Qt.NoFocus
+                 Image {
+@@ -465,48 +465,48 @@
+ 
+                             Label {
+                                 Layout.alignment: Qt.AlignRight
+-                                text: qsTr("Action On Disconnect:")
++                                text: qsTr("接続切断時の動作：")
+                             }
+ 
+                         C.ComboBox {
+                             id: disconnectAction
+                             Layout.preferredWidth: 400
+                             firstInFocusChain: true
+-                            model: [qsTr("Do Nothing"), qsTr("Enter Sleep Mode"), qsTr("Ask")]
++                            model: [qsTr("何もしない"), qsTr("スリープモードにする"), qsTr("毎回確認")]
+                             currentIndex: Chiaki.settings.disconnectAction
+                             onActivated: index => Chiaki.settings.disconnectAction = index
+                         }
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("(Ask)")
+-                        }
+-
+-                        Label {
+-                            Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Action On Suspend:")
++                            text: qsTr("（毎回確認）")
++                        }
++
++                        Label {
++                            Layout.alignment: Qt.AlignRight
++                            text: qsTr("スリープ時の動作：")
+                         }
+ 
+                         C.ComboBox {
+                             Layout.preferredWidth: 400
+-                            model: [qsTr("Do Nothing"), qsTr("Enter Sleep Mode")]
++                            model: [qsTr("何もしない"), qsTr("スリープモードにする")]
+                             currentIndex: Chiaki.settings.suspendAction
+                             onActivated: index => Chiaki.settings.suspendAction = index
+                         }
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("(Do Nothing)")
+-                        }
+-
+-                        Label {
+-                            Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Steam Deck Haptics:")
++                            text: qsTr("（何もしない）")
++                        }
++
++                        Label {
++                            Layout.alignment: Qt.AlignRight
++                            text: qsTr("Steam Deckの振動：")
+                             visible: (typeof Chiaki.settings.steamDeckHaptics !== "undefined")
+                         }
+ 
+                         C.CheckBox {
+-                            text: qsTr("True haptics for SteamDeck, better quality but noisier")
++                            text: qsTr("Steam Deck用の高精度振動（品質は向上しますが動作音が増えます）")
+                             checked: {
+                                 if(typeof Chiaki.settings.steamDeckHaptics !== "undefined")
+                                     Chiaki.settings.steamDeckHaptics
+@@ -519,18 +519,18 @@
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("(Unchecked)")
++                            text: qsTr("（オフ）")
+                             visible: (typeof Chiaki.settings.steamDeckHaptics !== "undefined")
+                         }
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Steam Deck Vertical:")
++                            text: qsTr("Steam Deckを縦向きで使用：")
+                             visible: typeof Chiaki.settings.verticalDeck !== "undefined"
+                         }
+ 
+                         C.CheckBox {
+-                            text: qsTr("Use Steam Deck in vertical orientation (motion controls)")
++                            text: qsTr("Steam Deckを縦向きにしてモーション操作する")
+                             checked: {
+                                 if(typeof Chiaki.settings.verticalDeck !== "undefined")
+                                     Chiaki.settings.verticalDeck
+@@ -543,30 +543,30 @@
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("(Unchecked)")
++                            text: qsTr("（オフ）")
+                             visible: typeof Chiaki.settings.verticalDeck !== "undefined"
+                         }
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Audio/Video:")
++                            text: qsTr("音声・映像：")
+                         }
+ 
+                         C.ComboBox {
+                             Layout.preferredWidth: 400
+-                            model: [qsTr("Audio and Video Enabled"), qsTr("Audio Disabled"), qsTr("Video Disabled"), qsTr("Audio and Video Disabled")]
++                            model: [qsTr("音声・映像を有効化"), qsTr("音声は無効です"), qsTr("映像は無効です"), qsTr("音声・映像を無効化")]
+                             currentIndex: Chiaki.settings.audioVideoDisabled
+                             onActivated: index => Chiaki.settings.audioVideoDisabled = index
+                         }
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("(Audio and Video Enabled)")
+-                        }
+-
+-                        Label {
+-                            Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Log Directory:")
++                            text: qsTr("（音声・映像オン）")
++                        }
++
++                        Label {
++                            Layout.alignment: Qt.AlignRight
++                            text: qsTr("ログの保存先：")
+                         }
+ 
+                         Label {
+@@ -583,7 +583,7 @@
+                                     verticalCenter: parent.verticalCenter
+                                     leftMargin: parent.paintedWidth + 20
+                                 }
+-                                text: qsTr("Open")
++                                text: qsTr("開く")
+                                 onClicked: Qt.openUrlExternally("file://" + parent.text);
+                                 Material.roundedScale: Material.SmallScale
+                             }
+@@ -593,7 +593,7 @@
+                         }
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Streamer Mode (Hides Info)")
++                            text: qsTr("配信者モード（情報を非表示）")
+                         }
+                         C.CheckBox {
+                             id: streamerMode
+@@ -603,12 +603,12 @@
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("(Unchecked)")
+-                        }
+-
+-                        Label {
+-                            Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Stream Menu Shortcut Enabled")
++                            text: qsTr("（オフ）")
++                        }
++
++                        Label {
++                            Layout.alignment: Qt.AlignRight
++                            text: qsTr("リモートプレイメニューのショートカットを有効化")
+                         }
+                         C.CheckBox {
+                             id: streamMenu
+@@ -628,7 +628,7 @@
+ 
+                             Label {
+                                 Layout.alignment: Qt.AlignRight
+-                                text: qsTr("(Checked)")
++                                text: qsTr("（オン）")
+                             }
+                         }
+                         RowLayout {
+@@ -637,14 +637,14 @@
+                             Layout.alignment: Qt.AlignHCenter
+                             Label {
+                                 Layout.alignment: Qt.AlignRight
+-                                text: qsTr("Stream Menu Combo:")
++                                text: qsTr("リモートプレイメニューのキー組み合わせ：")
+                             }
+ 
+                         C.ComboBox {
+                             id: streamMenuShortcut1
+                             implicitContentWidthPolicy: ComboBox.WidestText
+                             firstInFocusChain: false
+-                            model: [qsTr("Not Used"), qsTr("Cross"), qsTr("Moon"), qsTr("Box"), qsTr("Pyramid"), qsTr("Dpad Left"), qsTr("Dpad Right"), qsTr("Dpad Up"), qsTr("Dpad Down"), qsTr("L1"), qsTr("R1"), qsTr("L3"), qsTr("R3"), qsTr("Options"), qsTr("Share"), qsTr("Touchpad"), qsTr("PS")]
++                            model: [qsTr("未使用"), qsTr("×ボタン"), qsTr("ムーン"), qsTr("ボックス"), qsTr("△ボタン"), qsTr("方向キー・左"), qsTr("方向キー・右"), qsTr("方向キー・上"), qsTr("方向キー・下"), qsTr("L1"), qsTr("R1"), qsTr("L3"), qsTr("R3"), qsTr("OPTIONSボタン"), qsTr("SHAREボタン"), qsTr("タッチパッド"), qsTr("PS")]
+                             currentIndex: Chiaki.settings.streamMenuShortcut1
+                             onActivated: index => Chiaki.settings.streamMenuShortcut1 = index
+                             KeyNavigation.priority: {
+@@ -663,7 +663,7 @@
+                             id: streamMenuShortcut2
+                             implicitContentWidthPolicy: ComboBox.WidestText
+                             firstInFocusChain: false
+-                            model: [qsTr("Not Used"), qsTr("Cross"), qsTr("Moon"), qsTr("Box"), qsTr("Pyramid"), qsTr("Dpad Left"), qsTr("Dpad Right"), qsTr("Dpad Up"), qsTr("Dpad Down"), qsTr("L1"), qsTr("R1"), qsTr("L3"), qsTr("R3"), qsTr("Options"), qsTr("Share"), qsTr("Touchpad"), qsTr("PS")]
++                            model: [qsTr("未使用"), qsTr("×ボタン"), qsTr("ムーン"), qsTr("ボックス"), qsTr("△ボタン"), qsTr("方向キー・左"), qsTr("方向キー・右"), qsTr("方向キー・上"), qsTr("方向キー・下"), qsTr("L1"), qsTr("R1"), qsTr("L3"), qsTr("R3"), qsTr("OPTIONSボタン"), qsTr("SHAREボタン"), qsTr("タッチパッド"), qsTr("PS")]
+                             currentIndex: Chiaki.settings.streamMenuShortcut2
+                             onActivated: index => Chiaki.settings.streamMenuShortcut2 = index
+                             KeyNavigation.priority: {
+@@ -682,7 +682,7 @@
+                             id: streamMenuShortcut3
+                             implicitContentWidthPolicy: ComboBox.WidestText
+                             firstInFocusChain: false
+-                            model: [qsTr("Not Used"), qsTr("Cross"), qsTr("Moon"), qsTr("Box"), qsTr("Pyramid"), qsTr("Dpad Left"), qsTr("Dpad Right"), qsTr("Dpad Up"), qsTr("Dpad Down"), qsTr("L1"), qsTr("R1"), qsTr("L3"), qsTr("R3"), qsTr("Options"), qsTr("Share"), qsTr("Touchpad"), qsTr("PS")]
++                            model: [qsTr("未使用"), qsTr("×ボタン"), qsTr("ムーン"), qsTr("ボックス"), qsTr("△ボタン"), qsTr("方向キー・左"), qsTr("方向キー・右"), qsTr("方向キー・上"), qsTr("方向キー・下"), qsTr("L1"), qsTr("R1"), qsTr("L3"), qsTr("R3"), qsTr("OPTIONSボタン"), qsTr("SHAREボタン"), qsTr("タッチパッド"), qsTr("PS")]
+                             currentIndex: Chiaki.settings.streamMenuShortcut3
+                             onActivated: index => Chiaki.settings.streamMenuShortcut3 = index
+                             KeyNavigation.priority: {
+@@ -701,7 +701,7 @@
+                             id: streamMenuShortcut4
+                             implicitContentWidthPolicy: ComboBox.WidestText
+                             firstInFocusChain: false
+-                            model: [qsTr("Not Used"), qsTr("Cross"), qsTr("Moon"), qsTr("Box"), qsTr("Pyramid"), qsTr("Dpad Left"), qsTr("Dpad Right"), qsTr("Dpad Up"), qsTr("Dpad Down"), qsTr("L1"), qsTr("R1"), qsTr("L3"), qsTr("R3"), qsTr("Options"), qsTr("Share"), qsTr("Touchpad"), qsTr("PS")]
++                            model: [qsTr("未使用"), qsTr("×ボタン"), qsTr("ムーン"), qsTr("ボックス"), qsTr("△ボタン"), qsTr("方向キー・左"), qsTr("方向キー・右"), qsTr("方向キー・上"), qsTr("方向キー・下"), qsTr("L1"), qsTr("R1"), qsTr("L3"), qsTr("R3"), qsTr("OPTIONSボタン"), qsTr("SHAREボタン"), qsTr("タッチパッド"), qsTr("PS")]
+                             currentIndex: Chiaki.settings.streamMenuShortcut4
+                             onActivated: index => Chiaki.settings.streamMenuShortcut4 = index
+                             KeyNavigation.priority: {
+@@ -754,7 +754,7 @@
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Hardware Decoder:")
++                            text: qsTr("ハードウェアデコーダー：")
+                         }
+ 
+                     RowLayout {
+@@ -774,7 +774,7 @@
+                         }
+ 
+                         Label {
+-                            text: qsTr("Zero-Copy")
++                            text: qsTr("ゼロコピー")
+                         }
+ 
+                         C.CheckBox {
+@@ -790,31 +790,31 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Auto)")
+-                    }
+-
+-                    Label {
+-                        Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Window Type:")
++                        text: qsTr("（自動）")
++                    }
++
++                    Label {
++                        Layout.alignment: Qt.AlignRight
++                        text: qsTr("ウィンドウの種類：")
+                     }
+ 
+                     C.ComboBox {
+                         id: windowTypeCombo
+                         Layout.preferredWidth: 400
+                         popup.width: 500
+-                        model: [qsTr("Stream Resolution"), qsTr("Custom Resolution"), qsTr("Adjust Resolution Manually"), qsTr("Fullscreen"), qsTr("Zoom [adjust zoom using slider in stream menu]"), qsTr("Stretch")]
++                        model: [qsTr("配信解像度"), qsTr("カスタム解像度"), qsTr("解像度を手動で調整"), qsTr("全画面表示"), qsTr("ズーム（リモートプレイメニューのスライダーで調整）"), qsTr("引き伸ばし")]
+                         currentIndex: Chiaki.settings.windowType
+                         onActivated: (index) => Chiaki.settings.windowType = index;
+                     }
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Fullscreen)")
+-                    }
+-
+-                    Label {
+-                        Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Custom Resolution Width")
++                        text: qsTr("（全画面）")
++                    }
++
++                    Label {
++                        Layout.alignment: Qt.AlignRight
++                        text: qsTr("カスタム解像度の幅")
+                         visible: Chiaki.settings.windowType == 1
+                     }
+ 
+@@ -846,7 +846,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Custom Resolution Height")
++                        text: qsTr("カスタム解像度の高さ")
+                         visible: Chiaki.settings.windowType == 1
+                     }
+ 
+@@ -878,7 +878,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Toggle Fullscreen on Double-click:")
++                        text: qsTr("ダブルクリックで全画面表示を切り替え：")
+                     }
+ 
+                     C.CheckBox {
+@@ -888,12 +888,12 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Unchecked)")
+-                    }
+-
+-                    Label {
+-                        Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Hide Cursor during Stream")
++                        text: qsTr("（オフ）")
++                    }
++
++                    Label {
++                        Layout.alignment: Qt.AlignRight
++                        text: qsTr("プレイ中はカーソルを隠す")
+                     }
+                     C.CheckBox {
+                         checked: Chiaki.settings.hideCursor
+@@ -902,12 +902,12 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Checked)")
+-                    }
+-
+-                    Label {
+-                        Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Vertical Sync:")
++                        text: qsTr("（オン）")
++                    }
++
++                    Label {
++                        Layout.alignment: Qt.AlignRight
++                        text: qsTr("垂直同期：")
+                     }
+ 
+                     C.CheckBox {
+@@ -921,17 +921,17 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Unchecked)")
+-                    }
+-
+-                    Label {
+-                        Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Render Preset:")
++                        text: qsTr("（オフ）")
++                    }
++
++                    Label {
++                        Layout.alignment: Qt.AlignRight
++                        text: qsTr("描画プリセット：")
+                     }
+ 
+                     C.ComboBox {
+                         Layout.preferredWidth: 520
+-                        model: [qsTr("Fast"), qsTr("Default"), qsTr("High Quality"), qsTr("High Quality + Spatial Upscaling"), qsTr("High Quality + Advanced Spatial Upscaling"), qsTr("Custom")]
++                        model: [qsTr("高速"), qsTr("標準"), qsTr("高画質"), qsTr("高画質＋空間アップスケーリング"), qsTr("高画質＋高度な空間アップスケーリング"), qsTr("カスタム")]
+                         currentIndex: Chiaki.settings.videoPreset
+                         onActivated: (index) => {
+                             Chiaki.settings.videoPreset = index;
+@@ -948,17 +948,17 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(High Quality)")
+-                    }
+-
+-                    Label {
+-                        Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Frame Delivery:")
++                        text: qsTr("（高画質）")
++                    }
++
++                    Label {
++                        Layout.alignment: Qt.AlignRight
++                        text: qsTr("フレーム転送方式：")
+                     }
+ 
+                     C.ComboBox {
+                         Layout.preferredWidth: 400
+-                        model: [qsTr("Direct Mapping"), qsTr("Frame Queue")]
++                        model: [qsTr("直接マッピング"), qsTr("フレームキュー")]
+                         currentIndex: Chiaki.settings.directFrameMapping ? 0 : 1
+                         onActivated: (index) => {
+                             const direct = index === 0;
+@@ -972,17 +972,17 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Direct Mapping)")
+-                    }
+-
+-                    Label {
+-                        Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Frame Mixer:")
++                        text: qsTr("（直接マッピング）")
++                    }
++
++                    Label {
++                        Layout.alignment: Qt.AlignRight
++                        text: qsTr("フレームミキサー：")
+                     }
+ 
+                     C.ComboBox {
+                         Layout.preferredWidth: 400
+-                        model: [qsTr("None"), qsTr("Oversample"), qsTr("Hermite"), qsTr("Linear"), qsTr("Cubic")]
++                        model: [qsTr("なし"), qsTr("オーバーサンプリング"), qsTr("Hermite"), qsTr("リニア"), qsTr("キュービック")]
+                         enabled: !Chiaki.settings.directFrameMapping
+                         currentIndex: Chiaki.settings.directFrameMapping ? 0 : Chiaki.settings.placeboFrameMixer
+                         onActivated: index => Chiaki.settings.placeboFrameMixer = index
+@@ -990,12 +990,12 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(None)")
+-                    }
+-
+-                    Label {
+-                        Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Renderer Backend:")
++                        text: qsTr("（なし）")
++                    }
++
++                    Label {
++                        Layout.alignment: Qt.AlignRight
++                        text: qsTr("描画バックエンド：")
+                     }
+ 
+                     C.ComboBox {
+@@ -1018,7 +1018,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Vulkan Deferred Swap:")
++                        text: qsTr("Vulkanの遅延スワップ：")
+                         visible: Chiaki.settings.rendererBackend == 0
+                     }
+ 
+@@ -1030,19 +1030,19 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("(Unchecked)")
++                        text: qsTr("（オフ）")
+                         visible: Chiaki.settings.rendererBackend == 0
+                     }
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Custom Renderer Settings")
++                        text: qsTr("詳細な描画設定")
+                         visible: Chiaki.window.videoPreset == ChiakiWindow.VideoPreset.Custom
+                     }
+ 
+                     C.Button {
+                         id: customRendererSettings
+-                        text: qsTr("Open")
++                        text: qsTr("開く")
+                         onClicked: root.showPlaceboSettingsDialog()
+                         Material.roundedScale: Material.SmallScale
+                         visible: Chiaki.window.videoPreset == ChiakiWindow.VideoPreset.Custom
+@@ -1052,12 +1052,12 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Display Settings")
++                        text: qsTr("表示設定")
+                     }
+ 
+                     C.Button {
+                         id: displaySettings
+-                        text: qsTr("Open")
++                        text: qsTr("開く")
+                         onClicked: root.showDisplaySettingsDialog()
+                         Material.roundedScale: Material.SmallScale
+                         lastInFocusChain: true
+@@ -1097,7 +1097,7 @@
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Settings for:")
++                            text: qsTr("設定対象：")
+                         }
+ 
+ 
+@@ -1152,23 +1152,23 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignCenter
+-                        text: qsTr("Local")
++                        text: qsTr("ローカル")
+                     }
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignCenter
+-                        text: qsTr("Remote")
+-                    }
+-
+-                    Label {
+-                        Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Resolution:")
++                        text: qsTr("リモート")
++                    }
++
++                    Label {
++                        Layout.alignment: Qt.AlignRight
++                        text: qsTr("解像度：")
+                     }
+ 
+                     C.ComboBox {
+                         id: resolutionLocalPS4
+                         Layout.preferredWidth: 400
+-                        model: [qsTr("360p"), qsTr("540p"), qsTr("720p (Default)"), qsTr("1080p (PS5 and PS4 Pro)")]
++                        model: [qsTr("360p"), qsTr("540p"), qsTr("720p（標準）"), qsTr("1080p（PS5／PS4 Pro）")]
+                         currentIndex: Chiaki.settings.resolutionLocalPS4 - 1
+                         onActivated: (index) => {
+                             Chiaki.settings.resolutionLocalPS4 = index + 1
+@@ -1189,7 +1189,7 @@
+                     C.ComboBox {
+                         id: resolutionRemotePS4
+                         Layout.preferredWidth: 400
+-                        model: [qsTr("360p"), qsTr("540p"), qsTr("720p (Default)"), qsTr("1080p (PS5 and PS4 Pro)")]
++                        model: [qsTr("360p"), qsTr("540p"), qsTr("720p（標準）"), qsTr("1080p（PS5／PS4 Pro）")]
+                         currentIndex: Chiaki.settings.resolutionRemotePS4 - 1
+                         onActivated: (index) => {
+                             Chiaki.settings.resolutionRemotePS4 = index + 1
+@@ -1231,7 +1231,7 @@
+                     C.ComboBox {
+                         id: resolutionRemotePS5
+                         Layout.preferredWidth: 400
+-                        model: [qsTr("360p"), qsTr("540p"), qsTr("720p (Default)"), qsTr("1080p")]
++                        model: [qsTr("360p"), qsTr("540p"), qsTr("720p（標準）"), qsTr("1080p")]
+                         currentIndex: Chiaki.settings.resolutionRemotePS5 - 1
+                         onActivated: (index) => {
+                             Chiaki.settings.resolutionRemotePS5 = index + 1
+@@ -1251,13 +1251,13 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("FPS:")
++                        text: qsTr("フレームレート：")
+                     }
+ 
+                     C.ComboBox {
+                         id: fpsLocalPS4
+                         Layout.preferredWidth: 400
+-                        model: [qsTr("30 fps"), qsTr("60 fps (Default)")]
++                        model: [qsTr("30 fps"), qsTr("60 fps（標準）")]
+                         currentIndex: (Chiaki.settings.fpsLocalPS4 / 30) - 1
+                         onActivated: (index) => Chiaki.settings.fpsLocalPS4 = (index + 1) * 30
+                         visible: selectedConsole == SettingsDialog.Console.PS4
+@@ -1275,7 +1275,7 @@
+                     C.ComboBox {
+                         id: fpsRemotePS4
+                         Layout.preferredWidth: 400
+-                        model: [qsTr("30 fps"), qsTr("60 fps (Default)")]
++                        model: [qsTr("30 fps"), qsTr("60 fps（標準）")]
+                         currentIndex: (Chiaki.settings.fpsRemotePS4 / 30) - 1
+                         onActivated: (index) => Chiaki.settings.fpsRemotePS4 = (index + 1) * 30
+                         visible: selectedConsole == SettingsDialog.Console.PS4
+@@ -1293,7 +1293,7 @@
+                     C.ComboBox {
+                         id: fpsLocalPS5
+                         Layout.preferredWidth: 400
+-                        model: [qsTr("30 fps"), qsTr("60 fps (Default)")]
++                        model: [qsTr("30 fps"), qsTr("60 fps（標準）")]
+                         currentIndex: (Chiaki.settings.fpsLocalPS5 / 30) - 1
+                         onActivated: (index) => Chiaki.settings.fpsLocalPS5 = (index + 1) * 30
+                         visible: selectedConsole == SettingsDialog.Console.PS5
+@@ -1311,7 +1311,7 @@
+                     C.ComboBox {
+                         id: fpsRemotePS5
+                         Layout.preferredWidth: 400
+-                        model: [qsTr("30 fps"), qsTr("60 fps (Default)")]
++                        model: [qsTr("30 fps"), qsTr("60 fps（標準）")]
+                         currentIndex: (Chiaki.settings.fpsRemotePS5 / 30) - 1
+                         onActivated: (index) => Chiaki.settings.fpsRemotePS5 = (index + 1) * 30
+                         visible: selectedConsole == SettingsDialog.Console.PS5
+@@ -1328,7 +1328,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Bitrate:")
++                        text: qsTr("ビットレート：")
+                     }
+ 
+                     C.Slider {
+@@ -1466,7 +1466,7 @@
+ 
+                     Label {
+                         Layout.alignment: Qt.AlignRight
+-                        text: qsTr("Codec:")
++                        text: qsTr("コーデック：")
+                         visible: selectedConsole == SettingsDialog.Console.PS5
+                     }
+ 
+@@ -1556,7 +1556,7 @@
+                         }
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Output Device:")
++                            text: qsTr("出力デバイス：")
+                         }
+ 
+                         C.ComboBox {
+@@ -1566,7 +1566,7 @@
+                             popup.width: 700
+                             popup.font.pixelSize: 16
+                             firstInFocusChain: true
+-                            model: [qsTr("Auto")].concat(Chiaki.settings.availableAudioOutDevices)
++                            model: [qsTr("自動")].concat(Chiaki.settings.availableAudioOutDevices)
+                             currentIndex: Math.max(0, model.indexOf(Chiaki.settings.audioOutDevice))
+                             onActivated: (index) => Chiaki.settings.audioOutDevice = index ? model[index] : ""
+                             KeyNavigation.down: audioInDevice
+@@ -1575,12 +1575,12 @@
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("(Auto)")
+-                        }
+-
+-                        Label {
+-                            Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Input Device:")
++                            text: qsTr("（自動）")
++                        }
++
++                        Label {
++                            Layout.alignment: Qt.AlignRight
++                            text: qsTr("入力デバイス：")
+                         }
+ 
+                         C.ComboBox {
+@@ -1589,7 +1589,7 @@
+                             popup.x: (width - popup.width) / 2
+                             popup.width: 700
+                             popup.font.pixelSize: 16
+-                            model: [qsTr("Auto")].concat(Chiaki.settings.availableAudioInDevices)
++                            model: [qsTr("自動")].concat(Chiaki.settings.availableAudioInDevices)
+                             currentIndex: Math.max(0, model.indexOf(Chiaki.settings.audioInDevice))
+                             onActivated: (index) => Chiaki.settings.audioInDevice = index ? model[index] : ""
+                             KeyNavigation.up: audioOutDevice
+@@ -1599,12 +1599,12 @@
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("(Auto)")
+-                        }
+-
+-                        Label {
+-                            Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Audio Buffer Size:")
++                            text: qsTr("（自動）")
++                        }
++
++                        Label {
++                            Layout.alignment: Qt.AlignRight
++                            text: qsTr("音声バッファーサイズ：")
+                         }
+ 
+                         C.Slider {
+@@ -1636,7 +1636,7 @@
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Audio Volume:")
++                            text: qsTr("音量：")
+                         }
+ 
+                         C.Slider {
+@@ -1666,7 +1666,7 @@
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Start Mic Unmuted:")
++                            text: qsTr("マイクをミュートせず開始：")
+                         }
+ 
+                         C.CheckBox {
+@@ -1676,17 +1676,17 @@
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("(Unchecked)")
+-                        }
+-
+-                        Label {
+-                            Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Speech Processing:")
++                            text: qsTr("（オフ）")
++                        }
++
++                        Label {
++                            Layout.alignment: Qt.AlignRight
++                            text: qsTr("音声処理：")
+                             visible: typeof Chiaki.settings.speechProcessing !== "undefined"
+                         }
+ 
+                         C.CheckBox {
+-                            text: qsTr("Noise suppression + echo cancellation")
++                            text: qsTr("ノイズ抑制＋エコー除去")
+                             checked: Chiaki.settings.speechProcessing
+                             onToggled: Chiaki.settings.speechProcessing = !Chiaki.settings.speechProcessing
+                             visible: typeof Chiaki.settings.speechProcessing !== "undefined"
+@@ -1694,13 +1694,13 @@
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("(Unchecked)")
++                            text: qsTr("（オフ）")
+                             visible: typeof Chiaki.settings.speechProcessing !== "undefined"
+                         }
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Noise To Suppress:")
++                            text: qsTr("ノイズ抑制量：")
+                             visible: if (typeof Chiaki.settings.speechProcessing !== "undefined") {Chiaki.settings.speechProcessing} else {false}
+                         }
+ 
+@@ -1731,7 +1731,7 @@
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Echo To Suppress:")
++                            text: qsTr("エコー抑制量：")
+                             visible: if (typeof Chiaki.settings.speechProcessing !== "undefined") {Chiaki.settings.speechProcessing} else {false}
+                         }
+ 
+@@ -1762,7 +1762,7 @@
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Weak Wifi Notification:")
++                            text: qsTr("Wi-Fiの電波が弱いときに通知：")
+                         }
+ 
+                         C.Slider {
+@@ -1790,7 +1790,7 @@
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Packet Loss Reported Max:")
++                            text: qsTr("パケット損失率の上限：")
+                         }
+ 
+                         C.Slider {
+@@ -1807,7 +1807,7 @@
+                                     verticalCenter: parent.verticalCenter
+                                     leftMargin: 10
+                                 }
+-                                text: qsTr("%1% packet loss").arg(parent.value)
++                                text: qsTr("パケット損失率 %1%").arg(parent.value)
+                             }
+                         }
+ 
+@@ -1818,7 +1818,7 @@
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Request IDR Frame on FEC Failure")
++                            text: qsTr("FEC失敗時にIDRフレームを要求")
+                         }
+ 
+                         C.CheckBox {
+@@ -1828,12 +1828,12 @@
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("(Unchecked)")
+-                        }
+-
+-                        Label {
+-                            Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Show Stream Stats During Gameplay")
++                            text: qsTr("（オフ）")
++                        }
++
++                        Label {
++                            Layout.alignment: Qt.AlignRight
++                            text: qsTr("プレイ中に配信統計を表示")
+                         }
+ 
+                         C.CheckBox {
+@@ -1844,7 +1844,7 @@
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("(Unchecked)")
++                            text: qsTr("（オフ）")
+                         }
+                     }
+                 }
+@@ -1892,7 +1892,7 @@
+                             rightPadding: 30
+                             bottomPadding: 26
+                             firstInFocusChain: true
+-                            text: qsTr("Register New")
++                            text: qsTr("新規登録")
+                             onClicked: root.showRegistDialog("255.255.255.255", true)
+                             Material.roundedScale: Material.SmallScale
+                         }
+@@ -1900,7 +1900,7 @@
+                         Label {
+                             id: consolesLabel
+                             Layout.alignment: Qt.AlignHCenter
+-                            text: qsTr("Registered Consoles")
++                            text: qsTr("登録済みゲーム機")
+                             font.bold: true
+                         }
+ 
+@@ -1937,7 +1937,7 @@
+                                         verticalCenter: parent.verticalCenter
+                                         leftMargin: 20
+                                     }
+-                                    text: qsTr("Auto-Connect")
++                                    text: qsTr("自動接続")
+                                     checked: Chiaki.settings.autoConnectMac == modelData.mac
+                                     onToggled: Chiaki.settings.autoConnectMac = checked ? modelData.mac : "";
+ 
+@@ -2082,8 +2082,8 @@
+                                         verticalCenter: parent.verticalCenter
+                                         rightMargin: 20
+                                     }
+-                                    text: qsTr("Delete")
+-                                    onClicked: root.showConfirmDialog(qsTr("Delete Console"), qsTr("Are you sure you want to delete this console?"), () => Chiaki.settings.deleteRegisteredHost(index));
++                                    text: qsTr("削除")
++                                    onClicked: root.showConfirmDialog(qsTr("ゲーム機を削除"), qsTr("このゲーム機の登録を削除しますか？"), () => Chiaki.settings.deleteRegisteredHost(index));
+                                     Material.roundedScale: Material.SmallScale
+                                     Material.accent: Material.Red
+                                 }
+@@ -2093,7 +2093,7 @@
+                         Label {
+                             id: hiddenConsolesLabel
+                             Layout.alignment: Qt.AlignHCenter
+-                            text: qsTr("Hidden Consoles")
++                            text: qsTr("非表示のゲーム機")
+                             font.bold: true
+                         }
+                         ListView {
+@@ -2165,8 +2165,8 @@
+                                         verticalCenter: parent.verticalCenter
+                                         rightMargin: 20
+                                     }
+-                                    text: qsTr("Unhide")
+-                                    onClicked: root.showConfirmDialog(qsTr("Unhide Console"), qsTr("Are you sure you want to unhide this console?"), () => Chiaki.unhideHost(modelData.mac));
++                                    text: qsTr("再表示")
++                                    onClicked: root.showConfirmDialog(qsTr("ゲーム機を再表示"), qsTr("このゲーム機を再表示しますか？"), () => Chiaki.unhideHost(modelData.mac));
+                                     Material.roundedScale: Material.SmallScale
+                                     Material.accent: Material.Red
+                                 }
+@@ -2216,7 +2216,7 @@
+ 
+                         Button {
+                             id: resetAllKeys
+-                            text: "Reset All Keys"
++                            text: qsTr("キー設定をすべてリセット")
+                             Layout.alignment: Qt.AlignRight
+                             property bool firstInFocusChain: true
+                             property bool lastInFocusChain: false
+@@ -2275,7 +2275,7 @@
+                         }
+ 
+                         CheckBox {
+-                            text: qsTr("Keyboard as controller")
++                            text: qsTr("キーボードをコントローラーとして使用")
+                             checked: {
+                                 Chiaki.settings.keyboardEnabled
+                             }
+@@ -2347,7 +2347,7 @@
+                             }
+                         }
+                         CheckBox {
+-                            text: qsTr("Enable Mouse Touchpad")
++                            text: qsTr("マウスでタッチパッドを操作")
+                             checked: {
+                                 Chiaki.settings.mouseTouchEnabled
+                             }
+@@ -2550,7 +2550,7 @@
+                             Layout.alignment: Qt.AlignHCenter
+                             id: controllerMappingChange
+                             firstInFocusChain: true
+-                            text: "Change Controller Mapping"
++                            text: qsTr("コントローラー割り当てを変更")
+                             onClicked: controllerMappingDialog.show({
+                                 reset: false
+                             });
+@@ -2558,7 +2558,7 @@
+                         C.Button {
+                             Layout.alignment: Qt.AlignHCenter
+                             id: controllerMappingReset
+-                            text: "Reset Controller Mapping"
++                            text: qsTr("コントローラー割り当てをリセット")
+                             onClicked: controllerMappingDialog.show({
+                                 reset: true
+                             });
+@@ -2569,11 +2569,11 @@
+                             Layout.alignment: Qt.AlignHCenter
+                             Label {
+                                 Layout.alignment: Qt.AlignRight
+-                                text: qsTr("Background Controller Events:")
++                                text: qsTr("バックグラウンドでのコントローラー入力：")
+                             }
+                             C.CheckBox {
+                                 id: backgroundController
+-                                text: qsTr("Process controller input when application is in background")
++                                text: qsTr("アプリが背面にあるときもコントローラー入力を受け付ける")
+                                 checked: {
+                                     Chiaki.settings.allowJoystickBackgroundEvents
+                                 }
+@@ -2582,7 +2582,7 @@
+ 
+                             Label {
+                                 Layout.alignment: Qt.AlignRight
+-                                text: qsTr("(Checked)")
++                                text: qsTr("（オン）")
+                             }
+                         }
+                         RowLayout {
+@@ -2590,7 +2590,7 @@
+                             Layout.alignment: Qt.AlignHCenter
+                             Label {
+                                 Layout.alignment: Qt.AlignRight
+-                                text: qsTr("Dpad Touchpad Emulation")
++                                text: qsTr("方向キーでタッチパッドを操作")
+                             }
+                             C.CheckBox {
+                                 id: dpadTouch
+@@ -2610,7 +2610,7 @@
+ 
+                             Label {
+                                 Layout.alignment: Qt.AlignRight
+-                                text: qsTr("(Checked)")
++                                text: qsTr("（オン）")
+                             }
+                         }
+ 
+@@ -2621,7 +2621,7 @@
+                             visible: Chiaki.settings.dpadTouchEnabled
+                             Label {
+                                 Layout.alignment: Qt.AlignRight
+-                                text: qsTr("Dpad Touch Increment:")
++                                text: qsTr("方向キーのタッチ移動量：")
+                             }
+ 
+                             C.Slider {
+@@ -2654,7 +2654,7 @@
+                             Label {
+                                 Layout.alignment: Qt.AlignRight
+                                 Layout.leftMargin: 100
+-                                text: qsTr("(0.3 mm)")
++                                text: qsTr("（0.3 mm）")
+                             }
+                         }
+                         RowLayout {
+@@ -2663,14 +2663,14 @@
+                             Layout.alignment: Qt.AlignHCenter
+                             Label {
+                                 Layout.alignment: Qt.AlignRight
+-                                text: qsTr("Dpad Regular/Touch Combo:")
++                                text: qsTr("方向キー通常／タッチの切り替え：")
+                             }
+ 
+                             C.ComboBox {
+                                 id: dpadShortcut1
+                                 implicitContentWidthPolicy: ComboBox.WidestText
+                                 firstInFocusChain: false
+-                                model: [qsTr("Not Used"), qsTr("Cross"), qsTr("Moon"), qsTr("Box"), qsTr("Pyramid"), qsTr("Dpad Left"), qsTr("Dpad Right"), qsTr("Dpad Up"), qsTr("Dpad Down"), qsTr("L1"), qsTr("R1"), qsTr("L3"), qsTr("R3"), qsTr("Options"), qsTr("Share"), qsTr("Touchpad"), qsTr("PS")]
++                                model: [qsTr("未使用"), qsTr("×ボタン"), qsTr("ムーン"), qsTr("ボックス"), qsTr("△ボタン"), qsTr("方向キー・左"), qsTr("方向キー・右"), qsTr("方向キー・上"), qsTr("方向キー・下"), qsTr("L1"), qsTr("R1"), qsTr("L3"), qsTr("R3"), qsTr("OPTIONSボタン"), qsTr("SHAREボタン"), qsTr("タッチパッド"), qsTr("PS")]
+                                 currentIndex: Chiaki.settings.dpadTouchShortcut1
+                                 onActivated: index => Chiaki.settings.dpadTouchShortcut1 = index
+                                 KeyNavigation.priority: {
+@@ -2689,7 +2689,7 @@
+                                 id: dpadShortcut2
+                                 implicitContentWidthPolicy: ComboBox.WidestText
+                                 firstInFocusChain: false
+-                                model: [qsTr("Not Used"), qsTr("Cross"), qsTr("Moon"), qsTr("Box"), qsTr("Pyramid"), qsTr("Dpad Left"), qsTr("Dpad Right"), qsTr("Dpad Up"), qsTr("Dpad Down"), qsTr("L1"), qsTr("R1"), qsTr("L3"), qsTr("R3"), qsTr("Options"), qsTr("Share"), qsTr("Touchpad"), qsTr("PS")]
++                                model: [qsTr("未使用"), qsTr("×ボタン"), qsTr("ムーン"), qsTr("ボックス"), qsTr("△ボタン"), qsTr("方向キー・左"), qsTr("方向キー・右"), qsTr("方向キー・上"), qsTr("方向キー・下"), qsTr("L1"), qsTr("R1"), qsTr("L3"), qsTr("R3"), qsTr("OPTIONSボタン"), qsTr("SHAREボタン"), qsTr("タッチパッド"), qsTr("PS")]
+                                 currentIndex: Chiaki.settings.dpadTouchShortcut2
+                                 onActivated: index => Chiaki.settings.dpadTouchShortcut2 = index
+                                 KeyNavigation.priority: {
+@@ -2708,7 +2708,7 @@
+                                 id: dpadShortcut3
+                                 implicitContentWidthPolicy: ComboBox.WidestText
+                                 firstInFocusChain: false
+-                                model: [qsTr("Not Used"), qsTr("Cross"), qsTr("Moon"), qsTr("Box"), qsTr("Pyramid"), qsTr("Dpad Left"), qsTr("Dpad Right"), qsTr("Dpad Up"), qsTr("Dpad Down"), qsTr("L1"), qsTr("R1"), qsTr("L3"), qsTr("R3"), qsTr("Options"), qsTr("Share"), qsTr("Touchpad"), qsTr("PS")]
++                                model: [qsTr("未使用"), qsTr("×ボタン"), qsTr("ムーン"), qsTr("ボックス"), qsTr("△ボタン"), qsTr("方向キー・左"), qsTr("方向キー・右"), qsTr("方向キー・上"), qsTr("方向キー・下"), qsTr("L1"), qsTr("R1"), qsTr("L3"), qsTr("R3"), qsTr("OPTIONSボタン"), qsTr("SHAREボタン"), qsTr("タッチパッド"), qsTr("PS")]
+                                 currentIndex: Chiaki.settings.dpadTouchShortcut3
+                                 onActivated: index => Chiaki.settings.dpadTouchShortcut3 = index
+                                 KeyNavigation.priority: {
+@@ -2727,7 +2727,7 @@
+                                 id: dpadShortcut4
+                                 implicitContentWidthPolicy: ComboBox.WidestText
+                                 firstInFocusChain: false
+-                                model: [qsTr("Not Used"), qsTr("Cross"), qsTr("Moon"), qsTr("Box"), qsTr("Pyramid"), qsTr("Dpad Left"), qsTr("Dpad Right"), qsTr("Dpad Up"), qsTr("Dpad Down"), qsTr("L1"), qsTr("R1"), qsTr("L3"), qsTr("R3"), qsTr("Options"), qsTr("Share"), qsTr("Touchpad"), qsTr("PS")]
++                                model: [qsTr("未使用"), qsTr("×ボタン"), qsTr("ムーン"), qsTr("ボックス"), qsTr("△ボタン"), qsTr("方向キー・左"), qsTr("方向キー・右"), qsTr("方向キー・上"), qsTr("方向キー・下"), qsTr("L1"), qsTr("R1"), qsTr("L3"), qsTr("R3"), qsTr("OPTIONSボタン"), qsTr("SHAREボタン"), qsTr("タッチパッド"), qsTr("PS")]
+                                 currentIndex: Chiaki.settings.dpadTouchShortcut4
+                                 onActivated: index => Chiaki.settings.dpadTouchShortcut4 = index
+                                 KeyNavigation.priority: {
+@@ -2752,12 +2752,12 @@
+                             Layout.alignment: Qt.AlignHCenter
+                             Label {
+                                 Layout.alignment: Qt.AlignRight
+-                                text: qsTr("Buttons By Position:")
++                                text: qsTr("ボタン位置で認識：")
+                             }
+ 
+                             C.CheckBox {
+                                 id: posButtons
+-                                text: qsTr("Use buttons by position instead of by label")
++                                text: qsTr("ボタン表示ではなく位置で割り当てる")
+                                 checked: Chiaki.settings.buttonsByPosition
+                                 onToggled: Chiaki.settings.buttonsByPosition = checked
+                                 KeyNavigation.priority: KeyNavigation.BeforeItem
+@@ -2774,7 +2774,7 @@
+ 
+                             Label {
+                                 Layout.alignment: Qt.AlignRight
+-                                text: qsTr("(Unchecked)")
++                                text: qsTr("（オフ）")
+                             }
+                         }
+                         RowLayout {
+@@ -2782,20 +2782,20 @@
+                             Layout.alignment: Qt.AlignHCenter
+                             Label {
+                                 Layout.alignment: Qt.AlignRight
+-                                text: qsTr("Rumble Haptics:")
++                                text: qsTr("振動フィードバック：")
+                             }
+ 
+                             C.ComboBox {
+                                 id: rumbleHaptics
+                                 Layout.preferredWidth: 400
+-                                model: [qsTr("Off"), qsTr("Very Weak"), qsTr("Weak"), qsTr("Normal"), qsTr("Strong"), qsTr("Very Strong")]
++                                model: [qsTr("オフ"), qsTr("非常に弱い"), qsTr("弱い"), qsTr("通常"), qsTr("強い"), qsTr("非常に強い")]
+                                 currentIndex: Chiaki.settings.rumbleHapticsIntensity
+                                 onActivated: (index) => Chiaki.settings.rumbleHapticsIntensity = index;
+                             }
+ 
+                             Label {
+                                 Layout.alignment: Qt.AlignRight
+-                                text: qsTr("(Normal)")
++                                text: qsTr("（通常）")
+                             }
+                         }
+                         RowLayout {
+@@ -2803,7 +2803,7 @@
+                             Layout.alignment: Qt.AlignHCenter
+                             Label {
+                                 Layout.alignment: Qt.AlignRight
+-                                text: qsTr("True Haptics Intensity:")
++                                text: qsTr("高度な触覚フィードバックの強度：")
+                             }
+ 
+                             C.Slider {
+@@ -2825,7 +2825,7 @@
+                                         if(parent.value > 0.99 && parent.value < 1.01)
+                                             qsTr("console setting")
+                                         else
+-                                            (parent.value * 100).toFixed(0) + qsTr(" % console setting")
++                                            (parent.value * 100).toFixed(0) + qsTr(" %（ゲーム機の設定）")
+                                     }
+                                 }
+                             }
+@@ -2874,7 +2874,7 @@
+                             Layout.alignment: Qt.AlignHCenter
+                             Layout.columnSpan: 3
+ 
+-                            text: qsTr("Login to PSN")
++                            text: qsTr("PSNへログイン")
+                             onClicked: {
+                                 root.showPSNTokenDialog(false)
+                             }
+@@ -2888,7 +2888,7 @@
+                             leftPadding: 30
+                             rightPadding: 30
+                             bottomPadding: 26
+-                            text: qsTr("Clear PSN Token")
++                            text: qsTr("PSNトークンを消去")
+                             firstInFocusChain: !openPsnLogin.visible
+                             Layout.alignment: Qt.AlignHCenter
+                             Layout.columnSpan: 3
+@@ -2906,24 +2906,24 @@
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Hole Punching Port Guessing:")
++                            text: qsTr("ホールパンチングのポート探索：")
+                         }
+ 
+                         C.CheckBox {
+                             id: holePunchGuessingCheckbox
+-                            text: qsTr("Force STUN port guessing")
++                            text: qsTr("STUNポート探索を強制")
+                             checked: Chiaki.settings.portGuessingEnabled
+                             onToggled: Chiaki.settings.portGuessingEnabled = checked
+                         }
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("(Unchecked)")
+-                        }
+-
+-                        Label {
+-                            Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Port Guess Count:")
++                            text: qsTr("（オフ）")
++                        }
++
++                        Label {
++                            Layout.alignment: Qt.AlignRight
++                            text: qsTr("ポート探索回数：")
+                         }
+ 
+                         C.Slider {
+@@ -2953,7 +2953,7 @@
+ 
+                         Label {
+                             Layout.alignment: Qt.AlignRight
+-                            text: qsTr("Port Guess Socket Count:")
++                            text: qsTr("探索用ソケット数：")
+                         }
+ 
+                         C.Slider {
+@@ -3016,16 +3016,16 @@
+                         Label {
+                             text: {
+                                 if(Chiaki.settings.currentProfile)
+-                                    qsTr("Current Profile: ") + Chiaki.settings.currentProfile
++                                    qsTr("現在のアカウント：") + Chiaki.settings.currentProfile
+                                 else
+-                                    qsTr("Current Profile: default")
++                                    qsTr("現在のアカウント：標準")
+                             }
+                         }
+ 
+                         C.Button {
+                             id: profile
+                             firstInFocusChain: true
+-                            text: qsTr("Manage Profiles")
++                            text: qsTr("アカウント管理")
+                             onClicked: {
+                                 root.showProfileDialog()
+                             }
+@@ -3034,7 +3034,7 @@
+ 
+                     C.Button {
+                         id: exportButton
+-                        text: qsTr("Export settings to file")
++                        text: qsTr("設定をファイルに書き出す")
+                         onClicked: {
+                             Chiaki.settings.exportSettings();
+                         }
+@@ -3043,7 +3043,7 @@
+ 
+                     C.Button {
+                         id: importButton
+-                        text: qsTr("Import settings from file")
++                        text: qsTr("設定をファイルから読み込む")
+                         onClicked: {
+                             Chiaki.settings.importSettings();
+                         }
+@@ -3058,13 +3058,13 @@
+                     }
+ 
+                     C.CheckBox {
+-                        text: qsTr("Sanitize Logs (checked)")
++                        text: qsTr("ログの個人情報を隠す（オン）")
+                         checked: Chiaki.settings.logSanitize
+                         onToggled: Chiaki.settings.logSanitize = checked
+                     }
+ 
+                         C.CheckBox {
+-                            text: qsTr("Verbose Logging (unchecked)")
++                            text: qsTr("詳細ログ（オフ）")
+                             checked: Chiaki.settings.logVerbose
+                             lastInFocusChain: true
+                             onToggled: Chiaki.settings.logVerbose = checked
+@@ -3160,7 +3160,7 @@
+             parent: Overlay.overlay
+             x: Math.round((root.width - width) / 2)
+             y: Math.round((root.height - height) / 2)
+-            title: qsTr("Key Capture")
++            title: qsTr("キー入力の取得")
+             modal: true
+             standardButtons: Dialog.Close
+             closePolicy: Popup.CloseOnPressOutside
+@@ -3188,7 +3188,7 @@
+             Label {
+                 id: keyLabel
+                 focus: true
+-                text: qsTr("Press any key to configure button or click close")
++                text: qsTr("割り当てるキーを押すか、閉じてください")
+                 Keys.onReleased: (event) => {
+                     var name = Chiaki.settings.changeControllerKey(keyDialog.buttonValue, event.key);
+                     keyDialog.buttonCallback(name);
+@@ -3204,7 +3204,7 @@
+             parent: Overlay.overlay
+             x: Math.round((root.width - width) / 2)
+             y: Math.round((root.height - height) / 2)
+-            title: qsTr("Controller Capture")
++            title: qsTr("コントローラー入力の取得")
+             modal: true
+             standardButtons: Dialog.Close
+             closePolicy: Popup.CloseOnPressOutside
+@@ -3239,7 +3239,7 @@
+             }
+             Label {
+                 id: controllerLabel
+-                text: qsTr("Choose the controller by pressing any button on the controller")
++                text: qsTr("使用するコントローラーのボタンを押してください")
+             }
+         }
+ 
+@@ -3249,7 +3249,7 @@
+             parent: Overlay.overlay
+             x: Math.round((root.width - width) / 2)
+             y: Math.round((root.height - height) / 2)
+-            title: qsTr("Controller Managed by Steam")
++            title: qsTr("Steamが管理しているコントローラー")
+             modal: true
+             standardButtons: Dialog.Close
+             closePolicy: Popup.NoAutoClose
+@@ -3268,7 +3268,7 @@
+             Label {
+                 id: steamLabel
+                 wrapMode: TextEdit.Wrap
+-                text: qsTr("This controller is managed by Steam.\nPlease use Steam to map controller or disable Steam Input for the controller before mapping here.")
++                text: qsTr("このコントローラーはSteamが管理しています。\nSteam側で割り当てるか、Steam Inputを無効にしてから設定してください。")
+                 Keys.onReturnPressed: steamControllerMappingDialog.close();
+                 Keys.onEscapePressed: steamControllerMappingDialog.close();
+             }
